@@ -2,11 +2,18 @@
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import os
+import sys
 import threading
 import time
 import json
 import subprocess
 from svgpathtools import svg2paths2
+
+# Modular Features
+import barcode_module
+import pdf_module
+import preview_module
+import composer_module
 
 # Balor Imports
 import balor.sender
@@ -20,7 +27,7 @@ class BalorStudioLite:
         self.root.minsize(800, 600)
         
         # Initial State
-        self.current_svg = None
+        self.current_svg = "temp_workspace.svg" # Now everything points to the composer output
         self.machine = None
         self.is_connected = False
         self.presets_file = "laser_presets.json"
@@ -38,10 +45,56 @@ class BalorStudioLite:
         self.var_status = tk.StringVar(value="Desconectado")
         self.var_cal_file = tk.StringVar(value="cal_0002.csv" if os.path.exists("cal_0002.csv") else "")
         
+        # Hatch Variables
+        self.var_hatch_enable = tk.BooleanVar(value=True)
+        self.var_hatch_angle = tk.StringVar(value="90")
+        self.var_hatch_spacing = tk.StringVar(value="40.0") # microns
+
         # Text/Barcode Variables
-        self.var_content_mode = tk.StringVar(value="svg") # "svg", "text", "barcode"
+        self.var_content_mode = tk.StringVar(value="code128_serial") 
         self.var_input_text = tk.StringVar(value="TESTE123")
-        self.var_text_type = tk.StringVar(value="Texto") # "Texto", "QR Code"
+        self.var_text_type = tk.StringVar(value="Code 128 + Serial") 
+        self.var_text_pos = tk.StringVar(value="bottom") 
+        
+        # Generic Object Adjustment Variables
+        self.var_obj_scale_x = tk.StringVar(value="1.0")
+        self.var_obj_scale_y = tk.StringVar(value="1.0")
+        self.var_obj_off_x = tk.StringVar(value="0.0")
+        self.var_obj_off_y = tk.StringVar(value="0.0")
+        self.var_obj_rot = tk.StringVar(value="0")
+        
+        # Legacy Barcode/Text Variables (Still bound to UI)
+        self.var_barcode_h = tk.StringVar(value="20.0")
+        self.var_barcode_w_scale = tk.StringVar(value="1.0")
+        self.var_barcode_rot = tk.StringVar(value="0")
+        self.var_text_scale = tk.StringVar(value="1.0")
+        self.var_text_x_off = tk.StringVar(value="0.0")
+        self.var_text_y_off = tk.StringVar(value="0.0")
+        self.var_text_rot = tk.StringVar(value="0")
+        
+        self.selected_obj = tk.StringVar(value="")
+        
+        # SCENE GRAPH (Composition Engine)
+        self.custom_scene_items = [] 
+        # Will hold dicts: {'id', 'file', 'ox', 'oy', 'sx', 'sy', 'rot', 'color', 'visible'}
+        
+        # Pen (Layer) Management
+
+        # Pre-defined EzCAD-like pens: Black, Red, Blue
+        self.pens = {
+            "Preto (#000000)": {"color_hex": "#000000", "power": "40", "speed": "500", "freq": "30", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "40.0"},
+            "Vermelho (#FF0000)": {"color_hex": "#FF0000", "power": "80", "speed": "200", "freq": "20", "hatch_ena": True, "hatch_ang": "45", "hatch_spc": "30.0"},
+            "Azul (#0000FF)": {"color_hex": "#0000FF", "power": "30", "speed": "1000", "freq": "40", "hatch_ena": False, "hatch_ang": "0", "hatch_spc": "0.0"}
+        }
+        self.current_pen_name = tk.StringVar(value="Preto (#000000)")
+        
+        # Track object layers (colors)
+        self.obj_colors = {"barcode": "Preto (#000000)", "text": "Preto (#000000)"}
+        self.obj_visibility = {}
+        self.pdf_serials = []
+        self.current_serial_idx = -1
+        self.var_batch_active = tk.BooleanVar(value=False)
+        self.var_current_serial = tk.StringVar(value="")
         
         # SVG Metadata
         self.svg_raw_width = 1.0
@@ -49,6 +102,7 @@ class BalorStudioLite:
         self.svg_bounds = (0, 0, 0, 0) # min_x, max_x, min_y, max_y
 
         self.setup_ui()
+        self.preview_manager = preview_module.PreviewManager(self.canvas, self)
         
         # Connection management
         self.machine = balor.sender.Sender()
@@ -69,12 +123,14 @@ class BalorStudioLite:
 
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky="nsew")
-        main_frame.columnconfigure(1, weight=3) # Preview area grows more
+        main_frame.columnconfigure(0, weight=1) # Left Panel
+        main_frame.columnconfigure(1, weight=4) # Center Preview
+        main_frame.columnconfigure(2, weight=1) # Right Panel
         main_frame.rowconfigure(1, weight=1)
 
         # --- TOP: File Selection & Connection ---
         top_frame = ttk.LabelFrame(main_frame, text="Sistema", padding="5")
-        top_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=5)
+        top_frame.grid(row=0, column=0, columnspan=3, sticky="ew", pady=5)
         top_frame.columnconfigure(1, weight=1)
 
         ttk.Button(top_frame, text="Abrir SVG", command=self.browse_svg).grid(row=0, column=0, padx=5)
@@ -83,7 +139,7 @@ class BalorStudioLite:
 
         # Calibration
         cal_frame = ttk.Frame(top_frame)
-        cal_frame.grid(row=1, column=0, columnspan=2, sticky="w", padx=5, pady=2)
+        cal_frame.grid(row=1, column=0, columnspan=3, sticky="w", padx=5, pady=2)
         ttk.Label(cal_frame, text="Calibração:").pack(side=tk.LEFT)
         ttk.Entry(cal_frame, textvariable=self.var_cal_file, width=30).pack(side=tk.LEFT, padx=5)
         ttk.Button(cal_frame, text="...", width=3, command=self.browse_cal).pack(side=tk.LEFT)
@@ -100,46 +156,39 @@ class BalorStudioLite:
         ttk.Label(conn_frame, textvariable=self.var_status).pack(side=tk.LEFT)
         ttk.Button(conn_frame, text="Testar Conexão", command=self.connect_laser).pack(side=tk.LEFT, padx=5)
 
-        # --- LEFT: Parameters & Offsets ---
+        # --- LEFT: Parameters ---
         left_scroll_frame = ttk.Frame(main_frame)
         left_scroll_frame.grid(row=1, column=0, sticky="nsw", padx=5)
         
-        # Conteúdo Tabs
-        content_frame = ttk.LabelFrame(left_scroll_frame, text="Conteúdo", padding="5")
-        content_frame.pack(fill="x", pady=5)
-        
-        self.notebook = ttk.Notebook(content_frame)
-        self.notebook.pack(fill="x", expand=True)
-        
-        # Tab SVG
-        self.tab_svg = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_svg, text="SVG")
-        ttk.Button(self.tab_svg, text="Selecionar SVG", command=self.browse_svg).pack(pady=5)
-        
-        # Tab Text/Code
-        self.tab_text = ttk.Frame(self.notebook, padding=10)
-        self.notebook.add(self.tab_text, text="Texto/Código")
-        
-        ttk.Label(self.tab_text, text="Conteúdo:").pack(anchor="w")
-        ttk.Entry(self.tab_text, textvariable=self.var_input_text).pack(fill="x", pady=2)
-        
-        ttk.Label(self.tab_text, text="Tipo:").pack(anchor="w", pady=(5,0))
-        ttk.OptionMenu(self.tab_text, self.var_text_type, "Texto", "Texto", "QR Code").pack(fill="x")
-        
-        ttk.Button(self.tab_text, text="Gerar / Visualizar", command=self.update_content_mode).pack(pady=10)
-        
-        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
-
-        # Laser Params
-        param_frame = ttk.LabelFrame(left_scroll_frame, text="Configurações do Laser", padding="10")
+        # Laser Params -> Pen Params
+        param_frame = ttk.LabelFrame(left_scroll_frame, text="Parâmetros da Caneta", padding="10")
         param_frame.pack(fill="x", pady=5)
         
-        self._add_entry(param_frame, "Potência (0-100%):", self.var_power, 0)
-        self._add_entry(param_frame, "Velocidade (mm/s):", self.var_speed, 1)
-        self._add_entry(param_frame, "Frequência (kHz):", self.var_freq, 2)
+        pen_sel_frame = ttk.Frame(param_frame)
+        pen_sel_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 5))
+        ttk.Label(pen_sel_frame, text="Caneta:").pack(side=tk.LEFT)
+        self.combo_pens = ttk.Combobox(pen_sel_frame, textvariable=self.current_pen_name, values=list(self.pens.keys()), state="readonly", width=15)
+        self.combo_pens.pack(side=tk.LEFT, padx=5)
+        self.combo_pens.bind("<<ComboboxSelected>>", self.on_pen_selected)
+        
+        self._add_entry(param_frame, "Potência (0-100%):", self.var_power, 1)
+        self._add_entry(param_frame, "Velocidade (mm/s):", self.var_speed, 2)
+        self._add_entry(param_frame, "Frequência (kHz):", self.var_freq, 3)
+
+        # Hatch Params
+        hatch_frame = ttk.LabelFrame(left_scroll_frame, text="Preenchimento da Caneta", padding="10")
+        hatch_frame.pack(fill="x", pady=5)
+        
+        chk_hatch = ttk.Checkbutton(hatch_frame, text="Ativar Hatch", variable=self.var_hatch_enable)
+        chk_hatch.grid(row=0, column=0, columnspan=2, sticky="w", pady=2)
+        
+        self._add_entry(hatch_frame, "Ângulo (°):", self.var_hatch_angle, 1)
+        self._add_entry(hatch_frame, "Espaçamento (um):", self.var_hatch_spacing, 2)
+        
+        ttk.Button(hatch_frame, text="Salvar Caneta", command=self.save_pen_settings).grid(row=3, column=0, columnspan=2, pady=5)
 
         # Offsets and Scaling
-        offset_frame = ttk.LabelFrame(left_scroll_frame, text="Transformação", padding="10")
+        offset_frame = ttk.LabelFrame(left_scroll_frame, text="Global Transform", padding="10")
         offset_frame.pack(fill="x", pady=5)
         
         self.entry_x = self._add_entry(offset_frame, "Offset X (mm):", self.var_offset_x, 0)
@@ -157,7 +206,7 @@ class BalorStudioLite:
         self.var_height_cm.trace_add("write", self._on_height_cm_change)
 
         # Presets
-        preset_frame = ttk.LabelFrame(left_scroll_frame, text="Presets de Material", padding="10")
+        preset_frame = ttk.LabelFrame(left_scroll_frame, text="Presets", padding="10")
         preset_frame.pack(fill="x", pady=5)
         
         self.preset_combo = ttk.Combobox(preset_frame, values=list(self.presets.keys()), state="readonly")
@@ -168,29 +217,154 @@ class BalorStudioLite:
         ttk.Button(btn_p_frame, text="Carregar", command=self.load_selected_preset).pack(side=tk.LEFT, expand=True, padx=2)
         ttk.Button(btn_p_frame, text="Salvar", command=self.save_current_preset).pack(side=tk.RIGHT, expand=True, padx=2)
 
-        # --- RIGHT: Preview ---
+        # --- CENTER: Preview ---
         preview_frame = ttk.LabelFrame(main_frame, text="Área de Trabalho (Preview)", padding="5")
-        preview_frame.grid(row=1, column=1, sticky="nsew")
+        preview_frame.grid(row=1, column=1, sticky="nsew", padx=5)
         
         self.canvas = tk.Canvas(preview_frame, bg="#f0f0f0", borderwidth=1, relief="solid")
         self.canvas.pack(fill="both", expand=True)
         
-        # Draw Crosshair in center of canvas
+        # Mouse Wheel Zoom on Canvas
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        self.canvas.bind("<Button-4>", self.on_mouse_wheel) # Linux scroll up
+        self.canvas.bind("<Button-5>", self.on_mouse_wheel) # Linux scroll down
+        
+        # Draw Crosshair
         self.root.update_idletasks()
         self.draw_preview_grid()
 
+        # --- RIGHT: Contents & Adjustment ---
+        right_frame = ttk.Frame(main_frame)
+        right_frame.grid(row=1, column=2, sticky="nse", padx=5)
+        
+        # Lista de Objetos (Árvore)
+        list_frame = ttk.LabelFrame(right_frame, text="Lista de Objetos (Camadas)", padding="5")
+        list_frame.pack(fill="x", pady=5)
+        
+        # State dictionary to track visibility
+        self.obj_visibility = {}
+        
+        columns = ("tipo", "visivel", "cor")
+        self.tree_objs = ttk.Treeview(list_frame, columns=columns, show="headings", height=4)
+        self.tree_objs.heading("tipo", text="Objeto")
+        self.tree_objs.heading("visivel", text="Gravar?")
+        self.tree_objs.heading("cor", text="Cor (Caneta)")
+        self.tree_objs.column("tipo", width=90)
+        self.tree_objs.column("visivel", width=50, anchor="center")
+        self.tree_objs.column("cor", width=120, anchor="center")
+        self.tree_objs.pack(fill="x", pady=2)
+        
+        self.tree_objs.bind('<ButtonRelease-1>', self.on_tree_click)
+        self.tree_objs.bind('<<TreeviewSelect>>', self.on_tree_select)
+        
+        # Right-click menu for color assignment
+        self.color_menu = tk.Menu(self.root, tearoff=0)
+        for pen_name in self.pens.keys():
+            self.color_menu.add_command(label=f"Atribuir {pen_name}", command=lambda p=pen_name: self.assign_pen_to_selected(p))
+        self.tree_objs.bind("<Button-3>", self.show_color_menu)
+
+        
+        # Conteúdo Tabs
+        content_frame = ttk.LabelFrame(right_frame, text="Conteúdo Dinâmico", padding="5")
+        content_frame.pack(fill="x", pady=5, expand=True)
+        
+        self.notebook = ttk.Notebook(content_frame)
+        self.notebook.pack(fill="x", expand=True)
+        
+        # Tab SVG
+        self.tab_svg = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.tab_svg, text="SVG")
+        ttk.Button(self.tab_svg, text="Carregar SVG Principal", command=self.browse_svg).pack(fill="x", pady=5)
+        ttk.Button(self.tab_svg, text="Adicionar Arte (Compor)", command=self.add_to_scene).pack(fill="x", pady=5)
+        
+        # Tab Text/Code
+        self.tab_text = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.tab_text, text="Texto/Código")
+        
+        ttk.Label(self.tab_text, text="Conteúdo:").pack(anchor="w")
+        ttk.Entry(self.tab_text, textvariable=self.var_input_text).pack(fill="x", pady=2)
+        
+        ttk.Label(self.tab_text, text="Tipo:").pack(anchor="w", pady=(5,0))
+        ttk.OptionMenu(self.tab_text, self.var_text_type, "Texto", "Texto", "QR Code", "Code 128 + Serial").pack(fill="x")
+        
+        ttk.Label(self.tab_text, text="Posição Texto:").pack(anchor="w", pady=(5,0))
+        ttk.OptionMenu(self.tab_text, self.var_text_pos, "bottom", "bottom", "top").pack(fill="x")
+
+        ttk.Button(self.tab_text, text="Gerar / Visualizar", command=lambda: self.update_content_mode(from_btn=True)).pack(pady=10)
+        
+        # Painel de Ajuste Individual
+        self.adj_frame = ttk.LabelFrame(self.tab_text, text="Ajuste Individual (Selecione no Preview)", padding="5")
+        self.adj_frame.pack(fill="x", pady=5)
+        
+        ttk.Label(self.adj_frame, text="Barcode: Altura | Escala W").grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Entry(self.adj_frame, textvariable=self.var_barcode_h, width=8).grid(row=1, column=0, padx=2)
+        ttk.Entry(self.adj_frame, textvariable=self.var_barcode_w_scale, width=8).grid(row=1, column=1, padx=2)
+        
+        ttk.Label(self.adj_frame, text="Serial: Escala | Offset Y").grid(row=2, column=0, columnspan=2, sticky="w", pady=(5,0))
+        ttk.Entry(self.adj_frame, textvariable=self.var_text_scale, width=8).grid(row=3, column=0, padx=2)
+        ttk.Entry(self.adj_frame, textvariable=self.var_text_y_off, width=8).grid(row=3, column=1, padx=2)
+        
+        ttk.Button(self.adj_frame, text="Aplicar Ajustes", command=lambda: self.update_content_mode(from_btn=True)).grid(row=4, column=0, columnspan=2, pady=5)
+        
+        # Painel de Transformação Rápida
+        self.trans_frame = ttk.LabelFrame(self.tab_text, text="Transformação Rápida", padding="5")
+        self.trans_frame.pack(fill="x", pady=5)
+        
+        btn_rot_frame = ttk.Frame(self.trans_frame)
+        btn_rot_frame.pack(fill="x")
+        ttk.Button(btn_rot_frame, text="Girar 90°", width=10, command=lambda: self.apply_quick_transform("rotate")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_rot_frame, text="Espelhar H", width=10, command=lambda: self.apply_quick_transform("mirror_h")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_rot_frame, text="Espelhar V", width=10, command=lambda: self.apply_quick_transform("mirror_v")).pack(side=tk.LEFT, padx=2)
+        
+        btn_align_frame = ttk.Frame(self.trans_frame)
+        btn_align_frame.pack(fill="x", pady=5)
+        ttk.Button(btn_align_frame, text="Centralizar", width=10, command=lambda: self.apply_quick_transform("center")).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_align_frame, text="Resetar", width=10, command=lambda: self.apply_quick_transform("reset")).pack(side=tk.LEFT, padx=2)
+        
+        # Tab Batch PDF
+        self.tab_batch = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.tab_batch, text="Lote (PDF)")
+        
+        ttk.Button(self.tab_batch, text="Carregar Seriais de PDF", command=self.load_pdf_batch).pack(fill="x", pady=5)
+        
+        # Batch List (Treeview)
+        batch_list_frame = ttk.Frame(self.tab_batch)
+        batch_list_frame.pack(fill="both", expand=True, pady=5)
+        
+        # Scrollbar for batch list
+        batch_scroll = ttk.Scrollbar(batch_list_frame)
+        batch_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.tree_batch = ttk.Treeview(batch_list_frame, columns=("status", "serial"), show="headings", yscrollcommand=batch_scroll.set)
+        self.tree_batch.heading("status", text="Status")
+        self.tree_batch.heading("serial", text="Serial")
+        self.tree_batch.column("status", width=80, anchor="center")
+        self.tree_batch.column("serial", width=200, anchor="center")
+        self.tree_batch.pack(side=tk.LEFT, fill="both", expand=True)
+        batch_scroll.config(command=self.tree_batch.yview)
+        
+        self.tree_batch.bind('<Double-1>', self.on_batch_tree_double_click)
+        
+        self.lbl_batch_status = ttk.Label(self.tab_batch, text="Nenhum lote carregado")
+        self.lbl_batch_status.pack(pady=2)
+        
+        self.btn_next_serial = ttk.Button(self.tab_batch, text="Avançar Manual", command=self.next_batch_serial, state="disabled")
+        self.btn_next_serial.pack(fill="x", pady=2)
+        
+        self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
+
         # --- BOTTOM: Actions ---
         bottom_frame = ttk.Frame(main_frame, padding="10")
-        bottom_frame.grid(row=2, column=0, columnspan=2, sticky="ew")
+        bottom_frame.grid(row=2, column=0, columnspan=3, sticky="ew")
         
         # Modern Large Buttons
         style = ttk.Style()
         style.configure("Action.TButton", font=("Arial", 10, "bold"))
         
-        self.btn_light = ttk.Button(bottom_frame, text="[F1] LUZ GUIA", style="Action.TButton", command=self.start_light_mode)
+        self.btn_light = ttk.Button(bottom_frame, text="[F1] CONTORNO (LUZ)", style="Action.TButton", command=self.start_light_mode)
         self.btn_light.pack(side=tk.LEFT, padx=5, ipadx=10, ipady=10)
         
-        ttk.Button(bottom_frame, text="[F3] BORDAS (FRAME)", style="Action.TButton", command=self.start_frame_mode).pack(side=tk.LEFT, padx=5, ipadx=10, ipady=10)
+        ttk.Button(bottom_frame, text="[F3] BORDAS (QUADRO)", style="Action.TButton", command=self.start_frame_mode).pack(side=tk.LEFT, padx=5, ipadx=10, ipady=10)
 
         self.btn_mark = ttk.Button(bottom_frame, text="[F2] GRAVAR", style="Action.TButton", command=self.start_mark_mode)
         self.btn_mark.pack(side=tk.LEFT, padx=10, ipadx=10, ipady=10)
@@ -216,8 +390,11 @@ class BalorStudioLite:
             self.root.destroy()
 
     def _add_entry(self, parent, label, var, row):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=2)
-        ttk.Entry(parent, textvariable=var, width=12).grid(row=row, column=1, padx=5, pady=2)
+        lbl = ttk.Label(parent, text=label)
+        lbl.grid(row=row, column=0, sticky="w", pady=2)
+        ent = ttk.Entry(parent, textvariable=var, width=12)
+        ent.grid(row=row, column=1, padx=5, pady=2)
+        return ent
 
     def draw_preview_grid(self):
         w = self.canvas.winfo_width()
@@ -265,13 +442,95 @@ class BalorStudioLite:
         file_path = filedialog.askopenfilename(filetypes=[("SVG files", "*.svg")])
         if file_path:
             self.current_svg = file_path
+            self.main_svg_file = file_path
             self.lbl_filename.config(text=os.path.basename(file_path))
-            self.load_svg_preview()
+            self.var_content_mode.set("svg")
+            
+            # Reset any generated text context so it doesn't conflict
+            # self.var_text_type.set("Texto") # Optional, but we just want to ensure we compose the SVG
+            
+            # Switch to SVG tab automatically
+            self.notebook.select(self.tab_svg)
+            
+            # Use composer to render it cleanly and register paths
+            self.update_content_mode(from_btn=False)
+
+    def add_to_scene(self):
+        file_path = filedialog.askopenfilename(filetypes=[("SVG files", "*.svg")])
+        if file_path:
+            obj_id = f"custom_{len(self.custom_scene_items)}"
+            self.custom_scene_items.append({
+                'id': obj_id,
+                'file': file_path,
+                'source_id': '*',
+                'ox': 0.0, 'oy': 0.0,
+                'sx': 1.0, 'sy': 1.0,
+                'rot': 0.0,
+                'color': '', 
+                'visible': True,
+                'preserve_ids': False
+            })
+            # Ensure we treat everything as a composite SVG now
+            self.var_content_mode.set("svg")
+            self.update_content_mode(from_btn=False)
 
     def browse_cal(self):
         file_path = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         if file_path:
             self.var_cal_file.set(file_path)
+
+    def load_pdf_batch(self):
+        file_path = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        if file_path:
+            extractor = pdf_module.PDFSerialExtractor(file_path)
+            self.pdf_serials = extractor.extract_serials()
+            if self.pdf_serials:
+                self.current_serial_idx = 0
+                self.var_batch_active.set(True)
+                self.btn_next_serial.config(state="normal")
+                
+                # Popula a arvore
+                for i in self.tree_batch.get_children():
+                    self.tree_batch.delete(i)
+                for i, s in enumerate(self.pdf_serials):
+                    self.tree_batch.insert("", "end", iid=str(i), values=("Pendente", s))
+                
+                self._update_batch_ui()
+                self.var_input_text.set(self.pdf_serials[0])
+                self.update_content_mode()
+                messagebox.showinfo("Lote", f"Carregadas {len(self.pdf_serials)} seriais do PDF.")
+            else:
+                messagebox.showwarning("Aviso", "Nenhuma serial encontrada no PDF.")
+
+    def next_batch_serial(self):
+        if not self.pdf_serials: return
+        
+        # Mark current as Done if progressing naturally
+        if self.current_serial_idx >= 0 and self.current_serial_idx < len(self.pdf_serials):
+             item_id = str(self.current_serial_idx)
+             if self.tree_batch.exists(item_id):
+                 vals = self.tree_batch.item(item_id, "values")
+                 self.tree_batch.item(item_id, values=("Gravado", vals[1]))
+                 self.tree_batch.item(item_id, tags=("gravado",))
+                 self.tree_batch.tag_configure("gravado", foreground="green")
+
+        if self.current_serial_idx < len(self.pdf_serials) - 1:
+            self.current_serial_idx += 1
+            self._update_batch_ui()
+            self.var_input_text.set(self.pdf_serials[self.current_serial_idx])
+            self.update_content_mode()
+        else:
+            messagebox.showinfo("Fim do Lote", "Todas as seriais foram processadas.")
+            self.var_batch_active.set(False)
+            self.btn_next_serial.config(state="disabled")
+
+    def _update_batch_ui(self):
+        self.lbl_batch_status.config(text=f"Item {self.current_serial_idx + 1} de {len(self.pdf_serials)}")
+        # Highlight in Treeview
+        item_id = str(self.current_serial_idx)
+        if self.tree_batch.exists(item_id):
+            self.tree_batch.selection_set(item_id)
+            self.tree_batch.see(item_id)
 
     def generate_cal_grid(self):
         """Generates a calibration grid pattern using balor-test.py."""
@@ -315,76 +574,24 @@ class BalorStudioLite:
         
         threading.Thread(target=_run, daemon=True).start()
 
+    def on_batch_tree_double_click(self, event):
+        item = self.tree_batch.identify_row(event.y)
+        if item:
+            # Extract serial from the clicked row
+            vals = self.tree_batch.item(item, "values")
+            serial_clicked = vals[1]
+            try:
+                idx = self.pdf_serials.index(serial_clicked)
+                self.current_serial_idx = idx
+                self._update_batch_ui()
+                self.var_input_text.set(self.pdf_serials[self.current_serial_idx])
+                self.update_content_mode()
+            except ValueError:
+                pass
+
     def load_svg_preview(self):
-        if not self.current_svg: return
-        try:
-            self.canvas.delete("all")
-            self.draw_preview_grid()
-            paths, attributes, svg_attributes = svg2paths2(self.current_svg)
-
-            # Get canvas dimensions
-            self.root.update_idletasks()
-            w = self.canvas.winfo_width()
-            h = self.canvas.winfo_height()
-            if w <= 1 or h <= 1:
-                # If window not fully mapped, use a reasonable default or wait
-                w, h = 600, 450 
-
-            cx, cy = w/2, h/2
-
-            # Calculate bounding box of all paths
-            min_x, min_y = float('inf'), float('inf')
-            max_x, max_y = float('-inf'), float('-inf')
-
-            has_paths = False
-            for path in paths:
-                if len(path) == 0: continue
-                has_paths = True
-                bbox = path.bbox() # (xmin, xmax, ymin, ymax)
-                min_x = min(min_x, bbox[0])
-                max_x = max(max_x, bbox[1])
-                min_y = min(min_y, bbox[2])
-                max_y = max(max_y, bbox[3])
-
-            if not has_paths:
-                return
-
-            self.svg_raw_width = max_x - min_x
-            self.svg_raw_height = max_y - min_y
-            self.svg_bounds = (min_x, max_x, min_y, max_y)
-
-            if self.svg_raw_width == 0: self.svg_raw_width = 1
-            if self.svg_raw_height == 0: self.svg_raw_height = 1
-
-            # Initialize CM values based on current scale
-            self._on_scale_change()
-
-            # Padding for preview
-            margin = 40
-            scale = min((w - margin) / self.svg_raw_width, (h - margin) / self.svg_raw_height)
-
-            # Center the SVG in preview
-            offset_x = cx - (min_x + self.svg_raw_width/2) * scale
-            offset_y = cy - (min_y + self.svg_raw_height/2) * scale
-
-            for path in paths:
-                pts = []
-                for seg in path:
-                    # Adaptive steps based on segment length could be better, but 10 is okay
-                    steps = 10
-                    for i in range(steps + 1):
-                        p = seg.point(i/steps)
-                        pts.append((p.real * scale + offset_x, p.imag * scale + offset_y))
-
-                if len(pts) > 1:
-                    # Flatten the list of tuples for create_line
-                    flat_pts = [item for sublist in pts for item in sublist]
-                    self.canvas.create_line(flat_pts, fill="#007bff", width=1)
-
-        except Exception as e:
-            print(f"Preview error: {e}")
-            import traceback
-            traceback.print_exc()
+        print(f"[DEBUG] Delegating load_svg_preview to PreviewManager: {self.current_svg}")
+        self.preview_manager.load_svg(self.current_svg)
 
     def _on_scale_change(self, *args):
         if not self.current_svg: return
@@ -491,23 +698,179 @@ class BalorStudioLite:
                 pass
             self.var_status.set("Abortado")
 
-    def update_content_mode(self):
-        """Called when the user clicks 'Gerar' on the Text/Barcode tab."""
-        t = self.var_text_type.get()
-        if t == "Texto":
-            self.var_content_mode.set("text")
-        else:
-            self.var_content_mode.set("barcode")
+    def apply_quick_transform(self, op):
+        """Phase 2: Quick transformations like rotate, mirror, etc."""
+        sel = self.selected_obj.get()
+        if not sel:
+            messagebox.showinfo("Aviso", "Selecione um objeto no preview primeiro.")
+            return
+
+        if op == "rotate":
+            if sel == "barcode":
+                val = float(self.var_barcode_rot.get())
+                self.var_barcode_rot.set(str((val + 90) % 360))
+            else:
+                val = float(self.var_text_rot.get())
+                self.var_text_rot.set(str((val + 90) % 360))
+        elif op == "mirror_h":
+            if sel == "barcode":
+                val = float(self.var_barcode_w_scale.get())
+                self.var_barcode_w_scale.set(str(-val))
+            else:
+                val = float(self.var_text_scale.get())
+                self.var_text_scale.set(str(-val))
+        elif op == "center":
+            self.var_offset_x.set("0.0")
+            self.var_offset_y.set("0.0")
+            self.var_text_x_off.set("0.0")
+            self.var_text_y_off.set("0.0")
+        elif op == "reset":
+            self.var_barcode_h.set("20.0")
+            self.var_barcode_w_scale.set("1.0")
+            self.var_barcode_rot.set("0")
+            self.var_text_scale.set("1.0")
+            self.var_text_x_off.set("0.0")
+            self.var_text_y_off.set("0.0")
+            self.var_text_rot.set("0")
+            
+        self.update_content_mode()
+
+    def on_mouse_wheel(self, event):
+        """Handle zooming in the canvas with mouse wheel"""
+        if not self.current_svg or self.current_svg == "DUMMY": return
         
-        # When generating text/code, we reset scale to 1.0 initially
-        # and set a base raw size for framing
-        self.svg_raw_width = 50.0 # Standard base width mm
-        self.svg_raw_height = 10.0 # Standard base height mm
-        if t == "QR Code":
-            self.svg_raw_height = 50.0
+        # Windows/Mac use delta, Linux uses button 4/5
+        if event.num == 5 or event.delta < 0:
+            self.preview_zoom *= 0.9 # Zoom out
+        if event.num == 4 or event.delta > 0:
+            self.preview_zoom *= 1.1 # Zoom in
+            
+        self.load_svg_preview()
+
+    def on_pen_selected(self, event=None):
+        name = self.current_pen_name.get()
+        if name in self.pens:
+            p = self.pens[name]
+            self.var_power.set(p["power"])
+            self.var_speed.set(p["speed"])
+            self.var_freq.set(p["freq"])
+            self.var_hatch_enable.set(p["hatch_ena"])
+            self.var_hatch_angle.set(p["hatch_ang"])
+            self.var_hatch_spacing.set(p["hatch_spc"])
+
+    def save_pen_settings(self):
+        name = self.current_pen_name.get()
+        if name in self.pens:
+            self.pens[name]["power"] = self.var_power.get()
+            self.pens[name]["speed"] = self.var_speed.get()
+            self.pens[name]["freq"] = self.var_freq.get()
+            self.pens[name]["hatch_ena"] = self.var_hatch_enable.get()
+            self.pens[name]["hatch_ang"] = self.var_hatch_angle.get()
+            self.pens[name]["hatch_spc"] = self.var_hatch_spacing.get()
+            messagebox.showinfo("Sucesso", f"Parâmetros salvos para a caneta {name}.")
+
+    def show_color_menu(self, event):
+        item = self.tree_objs.identify_row(event.y)
+        if item:
+            self.tree_objs.selection_set(item)
+            self.selected_obj.set(item)
+            self.preview_manager.draw_selection()
+            self.color_menu.tk_popup(event.x_root, event.y_root)
+
+    def assign_pen_to_selected(self, pen_name):
+        sel = self.selected_obj.get()
+        if sel:
+            self.obj_colors[sel] = pen_name
+            # Refresh Treeview UI
+            col = "Preto" if "Preto" in pen_name else ("Vermelho" if "Vermelho" in pen_name else "Azul")
+            self.tree_objs.set(sel, column="cor", value=col)
+            # Update SVG colors immediately
+            self.update_content_mode()
+
+    def update_content_mode(self, from_btn=False):
+        """Called when the user clicks 'Gerar' on the Text/Barcode tab, or after drag/add."""
+        if from_btn:
+            t = self.var_text_type.get()
+            if t == "Texto": self.var_content_mode.set("text")
+            elif t == "QR Code": self.var_content_mode.set("barcode")
+            else: self.var_content_mode.set("code128_serial")
+            
+            # If user explicitly clicked Generate on the text tab, clear main custom SVG base
+            if hasattr(self, 'main_svg_file'):
+                self.main_svg_file = None
+
+        current_sel = self.selected_obj.get()
+        t = self.var_text_type.get()
+        print(f"[DEBUG] update_content_mode: mode={self.var_content_mode.get()}, type={t}, text={self.var_input_text.get()}")
+
+        base_items = []
+        
+        if self.var_content_mode.get() == "svg" and hasattr(self, 'main_svg_file') and self.main_svg_file and os.path.exists(self.main_svg_file):
+            base_items.append({
+                'id': 'main_svg', 'file': self.main_svg_file,
+                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'color': '',
+                'visible': True, 'preserve_ids': True
+            })
+        elif self.var_content_mode.get() == "code128_serial" or self.var_content_mode.get() == "svg":
+            gen = barcode_module.BarcodeGenerator()
+            try:
+                bh = float(self.var_barcode_h.get())
+                bw = float(self.var_barcode_w_scale.get())
+                ts = float(self.var_text_scale.get())
+                tx = float(self.var_text_x_off.get())
+                ty = float(self.var_text_y_off.get())
+                br = float(self.var_barcode_rot.get())
+                tr = float(self.var_text_rot.get())
+                bc_hex = self.pens.get(self.obj_colors.get("barcode", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                tc_hex = self.pens.get(self.obj_colors.get("text", "Preto (#000000)"), {}).get("color_hex", "#000000")
+            except:
+                bh, bw, ts, tx, ty, br, tr = 20.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0
+                bc_hex, tc_hex = "#000000", "#000000"
+
+            gen.generate_code128_svg(
+                self.var_input_text.get(), 
+                "temp_barcode.svg", 
+                barcode_height=bh, 
+                text_pos=self.var_text_pos.get(),
+                barcode_w_scale=bw,
+                text_scale=ts,
+                text_x_off=tx,
+                text_y_off=ty,
+                barcode_rot=br,
+                text_rot=tr,
+                barcode_color=bc_hex,
+                text_color=tc_hex
+            )
+            
+            base_items.append({
+                'id': 'base', 'file': 'temp_barcode.svg',
+                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'color': '',
+                'visible': True, 'preserve_ids': True
+            })
+
+        if self.var_content_mode.get() == "svg" or (self.var_content_mode.get() == "code128_serial" and self.custom_scene_items):
+            all_items = base_items + self.custom_scene_items
+            for item in self.custom_scene_items:
+                c_name = self.obj_colors.get(item['id'])
+                if c_name:
+                    item['color'] = self.pens.get(c_name, {}).get("color_hex", "")
+                    
+            composer_module.SceneComposer.compose_workspace(all_items, "temp_workspace.svg")
+            self.current_svg = "temp_workspace.svg"
+            print("[DEBUG] Workspace Composed.")
+        elif self.var_content_mode.get() == "code128_serial":
+            self.current_svg = "temp_barcode.svg"
+        else:
+            self.current_svg = "DUMMY"
+            
+        if self.current_svg != "DUMMY":
+            self.load_svg_preview()
+            self._populate_treeview(is_custom_svg=(self.var_content_mode.get() == "svg"))
+            self.selected_obj.set(current_sel)
+            self.preview_manager.draw_selection()
+            return
             
         self.svg_bounds = (0, self.svg_raw_width, 0, self.svg_raw_height)
-        self.current_svg = "DUMMY" # To allow scale updates
         self._on_scale_change()
         
         self.canvas.delete("all")
@@ -521,13 +884,85 @@ class BalorStudioLite:
         )
         self.lbl_filename.config(text=f"Gerado: {t}")
 
+    def _populate_treeview(self, is_custom_svg=False):
+        # Clear tree
+        for i in self.tree_objs.get_children():
+            self.tree_objs.delete(i)
+            
+        if self.current_svg and os.path.exists(self.current_svg):
+            # Always show barcode elements if we are generating them
+            if self.var_text_type.get() == "Code 128 + Serial" or self.var_content_mode.get() == "code128_serial":
+                if 'barcode' not in self.obj_visibility: self.obj_visibility['barcode'] = True
+                if 'text' not in self.obj_visibility: self.obj_visibility['text'] = True
+                
+                v_bar = "Sim" if self.obj_visibility['barcode'] else "Não"
+                v_txt = "Sim" if self.obj_visibility['text'] else "Não"
+                
+                c_bar = self.obj_colors.get('barcode', 'Preto (#000000)').split(' ')[0]
+                c_txt = self.obj_colors.get('text', 'Preto (#000000)').split(' ')[0]
+                
+                self.tree_objs.insert("", "end", iid="barcode", values=("Código de Barras", v_bar, c_bar))
+                self.tree_objs.insert("", "end", iid="text", values=("Texto Serial", v_txt, c_txt))
+            
+            # Now show custom composed items
+            if is_custom_svg or self.custom_scene_items:
+                for item in self.custom_scene_items:
+                    tag = item['id']
+                    if tag not in self.obj_visibility: self.obj_visibility[tag] = True
+                    if tag not in self.obj_colors: self.obj_colors[tag] = "Preto (#000000)"
+                    
+                    v_tag = "Sim" if self.obj_visibility[tag] else "Não"
+                    c_tag = self.obj_colors[tag].split(' ')[0]
+                    # Display the filename or a custom name
+                    display_name = f"Arte ({os.path.basename(item['file'])})"
+                    self.tree_objs.insert("", "end", iid=tag, values=(display_name, v_tag, c_tag))
+
+    def on_tree_select(self, event):
+        sel = self.tree_objs.selection()
+        if sel:
+            self.selected_obj.set(sel[0])
+            self.preview_manager.draw_selection()
+
+    def on_tree_click(self, event):
+        region = self.tree_objs.identify("region", event.x, event.y)
+        if region == "cell":
+            column = self.tree_objs.identify_column(event.x)
+            if column == '#2': # Visível column
+                item = self.tree_objs.identify_row(event.y)
+                if item:
+                    # Toggle visibility
+                    current = self.obj_visibility.get(item, True)
+                    self.obj_visibility[item] = not current
+                    # Update Treeview text
+                    new_val = "Sim" if self.obj_visibility[item] else "Não"
+                    self.tree_objs.set(item, column="visivel", value=new_val)
+                    # Update Canvas (Hide/Show)
+                    if self.obj_visibility[item]:
+                        self.canvas.itemconfig(item, state="normal")
+                    else:
+                        self.canvas.itemconfig(item, state="hidden")
+                        self.canvas.delete("sel_box")
+                        self.canvas.delete("handle")
+                        self.canvas.delete("dim_label")
+
     def _on_tab_changed(self, event):
         tab_id = self.notebook.index(self.notebook.select())
         if tab_id == 0: # SVG
             self.var_content_mode.set("svg")
-        else:
-            # Mode set by 'Gerar' button or automatically
-            pass
+        elif tab_id == 1: # Text/Code
+            t = self.var_text_type.get()
+            if t == "Texto": self.var_content_mode.set("text")
+            elif t == "QR Code": self.var_content_mode.set("barcode")
+            else: self.var_content_mode.set("code128_serial")
+
+    def _get_barcode_bounds(self, text, sc):
+        # Placeholder for estimating barcode bounds (Code 128)
+        # 1 character in Code 128 is approx 11 modules. 
+        # Plus quiet zones and padding.
+        modules = (len(text) * 11 + 35) 
+        w_mm = modules * 0.2 * sc # 0.2 is typical module width
+        h_mm = 25 * sc # Typical height
+        return (0, w_mm, 0, h_mm)
 
     def _run_laser_op(self, mode):
         if self.op_running:
@@ -556,14 +991,20 @@ class BalorStudioLite:
                 commands.ready()
                 commands.set_travel_speed(2000)
                 
+                if content_mode == "code128_serial":
+                    self.svg_bounds = self._get_barcode_bounds(self.var_input_text.get(), sc)
+                
                 min_x, max_x, min_y, max_y = self.svg_bounds
                 
+                # If we are not in SVG mode, sc is already applied to bounds or not needed
+                actual_sc = sc if content_mode == "svg" else 1.0
+                
                 pts = [
-                    (min_x * sc + ox, min_y * sc + oy),
-                    (max_x * sc + ox, min_y * sc + oy),
-                    (max_x * sc + ox, max_y * sc + oy),
-                    (min_x * sc + ox, max_y * sc + oy),
-                    (min_x * sc + ox, min_y * sc + oy)
+                    (min_x * actual_sc + ox, min_y * actual_sc + oy),
+                    (max_x * actual_sc + ox, min_y * actual_sc + oy),
+                    (max_x * actual_sc + ox, max_y * actual_sc + oy),
+                    (min_x * actual_sc + ox, max_y * actual_sc + oy),
+                    (min_x * actual_sc + ox, min_y * actual_sc + oy)
                 ]
                 
                 commands.init(pts[0][0], pts[0][1])
@@ -582,19 +1023,33 @@ class BalorStudioLite:
                 job_file = f"temp_job_{mode}.bin"
                 import sys
                 
+                # Generate dynamic pen settings for balor-svg.py
+                settings_csv = "temp_settings.csv"
+                with open(settings_csv, "w") as f:
+                    for name, p_data in self.pens.items():
+                        c_hex = p_data["color_hex"].replace("#", "")
+                        # Format: color freq power speed hatch_angle hatch_spacing hatch_pattern repeats (space separated)
+                        spc = p_data["hatch_spc"] if p_data["hatch_ena"] else "0"
+                        f.write(f"{c_hex} {p_data['freq']} {p_data['power']} {p_data['speed']} {p_data['hatch_ang']} {spc} None 1\n")
+                
+                settings_arg = ["-s", settings_csv]
+                
+                # Collect hidden tags
+                hidden_tags = []
+                for k, v in self.obj_visibility.items():
+                    if not v: hidden_tags.append(k)
+                hidden_arg = ["--hidden-tags", ",".join(hidden_tags)] if hidden_tags else []
+                
                 if content_mode == "svg":
                     cmd = [
                         sys.executable, "balor-svg.py", mode,
                         "-f", self.current_svg,
                         "-o", job_file,
-                        "--laser-power", p,
-                        "--cut-speed", s,
-                        "--q-switch-frequency", q,
                         "--xoff", str(ox),
                         "--yoff", str(oy),
                         "--xscale", str(sc),
                         "--yscale", str(sc)
-                    ] + cal_arg
+                    ] + cal_arg + settings_arg + hidden_arg
                 elif content_mode == "text":
                     cmd = [
                         sys.executable, "balor-text.py", mode,
@@ -622,6 +1077,17 @@ class BalorStudioLite:
                         "--raster-x-res", str(0.1 * sc),
                         "--raster-y-res", str(0.1 * sc)
                     ] + cal_arg
+                elif content_mode == "code128_serial":
+                    # Use balor-svg.py for better vector marking of barcodes
+                    cmd = [
+                        sys.executable, "balor-svg.py", mode,
+                        "-f", "temp_barcode.svg",
+                        "-o", job_file,
+                        "--xoff", str(ox),
+                        "--yoff", str(oy),
+                        "--xscale", str(sc),
+                        "--yscale", str(sc)
+                    ] + cal_arg + settings_arg + hidden_arg
                 
                 subprocess.run(cmd, check=True)
                 
@@ -641,7 +1107,13 @@ class BalorStudioLite:
                         finally:
                             self.machine.light_off()
                     else:
+                        # Marking Mode
                         self.machine.execute(command_list=commands, loop_count=1)
+                        
+                        # Auto-Increment if Batch is Active
+                        if not self.abort_op and self.var_batch_active.get():
+                            # Schedule the UI update safely on the main thread
+                            self.root.after(500, self.auto_advance_batch)
                 
             if not self.abort_op:
                 self.var_status.set("Pronto")
@@ -652,6 +1124,16 @@ class BalorStudioLite:
         finally:
             self.abort_op = False
             self.op_running = False
+
+    def auto_advance_batch(self):
+        """Automatically called after a successful mark if batch is active."""
+        if self.var_batch_active.get() and self.current_serial_idx < len(self.pdf_serials) - 1:
+            self.next_batch_serial()
+            self.var_status.set("Pronto para o próximo!")
+        elif self.var_batch_active.get():
+            messagebox.showinfo("Fim do Lote", "Todas as peças do PDF foram gravadas.")
+            self.var_batch_active.set(False)
+            self.btn_next_serial.config(state="disabled")
 
 if __name__ == "__main__":
     root = tk.Tk()

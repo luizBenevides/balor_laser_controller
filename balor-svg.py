@@ -61,6 +61,8 @@ parser.add_argument('--hatch-spacing',
 parser.add_argument('--hatch-angle',
     help="Specify the default hatching angle in degrees",
     default=45.0, type=float)
+parser.add_argument('--hidden-tags', type=str, default="",
+    help="Comma-separated list of SVG IDs to ignore during rendering")
 parser.add_argument('--segment-length',
     help="Maximum path segment length in mm",
     default=1.0, type=float)
@@ -105,39 +107,55 @@ from svgpathtools import Line
 def render_fill(path, job, cal, settings, args, fill_color):
     print ("$FILL", path.bbox(), path.iscontinuous() and path.isclosed(), file=sys.stderr)
     brush = settings.get(fill_color)
-    xmin,xmax,ymin,ymax = path.bbox()
     job.set_frequency(brush[0])
     job.set_power(brush[1])
     job.set_cut_speed(brush[2])
-    # TODO - multiple hatch patterns, pay attention to hatch angle, etc
-    hatch_x = np.linspace(xmin-0.1, xmax+0.1, int(round((0.2+xmax-xmin)/(float(brush[4])/1000.0))))
+    
+    angle = brush[3]
+    spacing = float(brush[4]) / 1000.0
+    if spacing <= 0: return
+
+    # Rotate path by -angle to do vertical hatching, then rotate back
+    rot_path = path.rotated(-angle)
+    xmin, xmax, ymin, ymax = rot_path.bbox()
+    
+    hatch_x = np.linspace(xmin-0.1, xmax+0.1, int(round((0.2+xmax-xmin)/spacing)))
     sys.stderr.write(("|"*(len(hatch_x)//50)) + "\n")
     sys.stderr.flush()
-    for n,x in enumerate(hatch_x):
+    
+    import cmath
+    
+    for n, x in enumerate(hatch_x):
         if not n % 50: 
             sys.stderr.write(".")
             sys.stderr.flush()
-        line = Line(complex(x,ymin-0.1), complex(x,ymax+0.1))
+        line = Line(complex(x, ymin-0.1), complex(x, ymax+0.1))
 
         try: 
-            base_intersects = path.intersect(line)
+            base_intersects = rot_path.intersect(line)
         except ValueError:
             print ("Caution - ValueError in intersect calculation.", file=sys.stderr)
             continue
+            
         intersects = []
         for ((_,seg,t0), (_,_,t1)) in base_intersects:
             p0 = line.point(t1)
-            x0,y0 = p0.real, p0.imag
-            intersects.append((x0,y0))
+            intersects.append(p0.imag) # Just need the Y coordinate
         
         intersects.sort()
 
-        for (x0,y0), (x1,y1) in zip(intersects[::2], intersects[1::2]):
-            job.goto(x0,y0)
+        def rot_back(px, py):
+            rad = np.radians(angle)
+            c = complex(px, py) * cmath.rect(1, rad)
+            return c.real, c.imag
+
+        for y0, y1 in zip(intersects[::2], intersects[1::2]):
+            rx0, ry0 = rot_back(x, y0)
+            rx1, ry1 = rot_back(x, y1)
+            job.goto(rx0, ry0)
             job.laser_control(True)
-            job.draw_line(x0,y0,x1,y1)
+            job.draw_line(rx0, ry0, rx1, ry1)
             job.laser_control(False)
-            #print("$$", x0,y0, ",", x1,y1, file=sys.stderr)
     print ("... done.", file=sys.stderr)
            
 
@@ -159,6 +177,8 @@ def render_stroke(path, job, cal, settings, args, stroke_color):
     job.set_power(brush[1])
     job.set_cut_speed(brush[2])
     print ("Path", len(path), len(points), repr(path), file=sys.stderr)
+    if not points:
+        return
     for _ in range(brush[6]):
         ix,iy,_ = points[0]
         try:
@@ -179,10 +199,14 @@ def render_stroke(path, job, cal, settings, args, stroke_color):
 
 def render_stroke_light(path, job, cal, settings, args, stroke_color):
     length = path.length()
-    ts = np.linspace(0,1,int(round(path.length() / args.segment_length)))
+    num_points = int(round(path.length() / args.segment_length))
+    if num_points < 2: num_points = 2
+    ts = np.linspace(0,1,num_points)
     points = [(c.real*args.xscale + args.xoff,c.imag*args.yscale + args.yoff
                             ) for c in [path.point(t) for t in ts]]
     
+    if not points:
+        return
     
     ix,iy = points[0]
     job.goto(*points[0])
@@ -204,10 +228,33 @@ def render_svg(svg, job, cal, args, settings):
     
     job.raw_travel(0x8000, 0x8000)
     begin = job.position
+    
+    hidden_tags_list = [t.strip() for t in args.hidden_tags.split(',')] if args.hidden_tags else []
+    
     for path, attribute in zip(paths, attributes):
-        print ("begin", attribute.get('id', 'no id'), file=sys.stderr)
+        tag_id = attribute.get('id', 'no id')
+        
+        if tag_id in hidden_tags_list:
+            print (f"Skipping hidden tag: {tag_id}", file=sys.stderr)
+            continue
+            
+        print ("begin", tag_id, file=sys.stderr)
         fill_color = None
         stroke_color = None
+        
+        # Try direct attributes first
+        if 'fill' in attribute:
+            v = attribute['fill'].strip()
+            if v == 'none': fill_color = None
+            elif v == 'black': fill_color = 0
+            elif v.startswith('#'): fill_color = int(v[1:], 16)
+                
+        if 'stroke' in attribute:
+            v = attribute['stroke'].strip()
+            if v == 'none': stroke_color = None
+            elif v == 'black': stroke_color = 0
+            elif v.startswith('#'): stroke_color = int(v[1:], 16)
+
         if 'style' in attribute:
             style = attribute['style'].split(';')
             for atr in style:
@@ -215,20 +262,18 @@ def render_svg(svg, job, cal, args, settings):
                 try:
                     k,v = atr.split(':')
                     v = v.strip()
-                    # If this is failing, I guess it's because your svg program
-                    # does something different from Inkscape. Send me a patch:
                     if k == 'fill':
                         if v == 'none':
                             fill_color = None
+                        elif v == 'black':
+                            fill_color = 0
                         elif v.startswith('#'):
                             fill_color = int(v[1:], 16)
-                        else:
-                            # Try to handle named colors or other formats if possible
-                            # For now, just skip or use a marker
-                            pass
                     elif k == 'stroke':
                         if v == 'none':
                             stroke_color = None
+                        elif v == 'black':
+                            stroke_color = 0
                         elif v.startswith('#'):
                             stroke_color = int(v[1:], 16)
                 except Exception as e:
@@ -237,6 +282,7 @@ def render_svg(svg, job, cal, args, settings):
         if fill_color == None and stroke_color == None:
             # Fallback to default if no colors found, so something actually happens
             stroke_color = 0 
+
             
         if fill_color != None and args.operation == 'mark':
             print ("rendering hatching of", attribute.get('id', 'no id'), file=sys.stderr)
@@ -272,8 +318,8 @@ class MachineSettings:
                 laser_power = args.laser_power,
                 q_switch_frequency = args.q_switch_frequency,
                 repeats = args.repetition,
-                hatch_angle = 90.0,
-                hatch_spacing = 40.0,
+                hatch_angle = args.hatch_angle,
+                hatch_spacing = args.hatch_spacing,
                 hatch_pattern = None)
     def add(self, color, cut_speed, laser_power, q_switch_frequency, repeats, 
             hatch_angle, hatch_spacing, hatch_pattern):
