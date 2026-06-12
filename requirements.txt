@@ -1,0 +1,21 @@
+# Core dependencies
+numpy
+scipy
+Pillow
+opencv-python
+pyusb
+libusb-package
+
+# SVG and Graphics
+svgpathtools
+svgelements
+segno
+python-barcode
+
+# Document and G-code processing
+pypdf
+gcodeparser
+
+# Utility scripts dependencies
+matplotlib
+dpkt
