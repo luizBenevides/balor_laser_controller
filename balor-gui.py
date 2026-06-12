@@ -305,6 +305,17 @@ class BalorStudioLite:
         ttk.Entry(self.adj_frame, textvariable=self.var_text_y_off, width=8).grid(row=3, column=1, padx=2)
         
         ttk.Button(self.adj_frame, text="Aplicar Ajustes", command=lambda: self.update_content_mode(from_btn=True)).grid(row=4, column=0, columnspan=2, pady=5)
+
+        ttk.Separator(self.adj_frame, orient='horizontal').grid(row=5, column=0, columnspan=2, sticky="ew", pady=6)
+        ttk.Label(self.adj_frame, text="Arte SVG selecionada: Escala X | Escala Y").grid(row=6, column=0, columnspan=2, sticky="w")
+        ttk.Entry(self.adj_frame, textvariable=self.var_obj_scale_x, width=8).grid(row=7, column=0, padx=2)
+        ttk.Entry(self.adj_frame, textvariable=self.var_obj_scale_y, width=8).grid(row=7, column=1, padx=2)
+        ttk.Label(self.adj_frame, text="Offset X | Offset Y").grid(row=8, column=0, columnspan=2, sticky="w", pady=(5,0))
+        ttk.Entry(self.adj_frame, textvariable=self.var_obj_off_x, width=8).grid(row=9, column=0, padx=2)
+        ttk.Entry(self.adj_frame, textvariable=self.var_obj_off_y, width=8).grid(row=9, column=1, padx=2)
+        ttk.Label(self.adj_frame, text="Rotacao (graus)").grid(row=10, column=0, sticky="w", pady=(5,0))
+        ttk.Entry(self.adj_frame, textvariable=self.var_obj_rot, width=8).grid(row=10, column=1, padx=2)
+        ttk.Button(self.adj_frame, text="Aplicar na Arte", command=self.apply_selected_object_adjustments).grid(row=11, column=0, columnspan=2, pady=5)
         
         # Painel de Transformação Rápida
         self.trans_frame = ttk.LabelFrame(self.tab_text, text="Transformação Rápida", padding="5")
@@ -466,6 +477,7 @@ class BalorStudioLite:
                 'ox': 0.0, 'oy': 0.0,
                 'sx': 1.0, 'sy': 1.0,
                 'rot': 0.0,
+                'z': 100.0 + len(self.custom_scene_items),
                 'color': '', 
                 'visible': True,
                 'preserve_ids': False
@@ -705,6 +717,27 @@ class BalorStudioLite:
             messagebox.showinfo("Aviso", "Selecione um objeto no preview primeiro.")
             return
 
+        custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
+        if custom_item:
+            if op == "rotate":
+                custom_item['rot'] = (float(custom_item.get('rot', 0.0)) + 90.0) % 360.0
+            elif op == "mirror_h":
+                custom_item['sx'] = -float(custom_item.get('sx', 1.0))
+            elif op == "mirror_v":
+                custom_item['sy'] = -float(custom_item.get('sy', 1.0))
+            elif op == "center":
+                custom_item['ox'] = 0.0
+                custom_item['oy'] = 0.0
+            elif op == "reset":
+                custom_item['sx'] = 1.0
+                custom_item['sy'] = 1.0
+                custom_item['ox'] = 0.0
+                custom_item['oy'] = 0.0
+                custom_item['rot'] = 0.0
+            self.sync_selected_object_controls()
+            self.update_content_mode()
+            return
+
         if op == "rotate":
             if sel == "barcode":
                 val = float(self.var_barcode_rot.get())
@@ -734,6 +767,62 @@ class BalorStudioLite:
             self.var_text_rot.set("0")
             
         self.update_content_mode()
+
+    def sync_selected_object_controls(self):
+        """Sync selected custom SVG object transform values into UI fields."""
+        sel = self.selected_obj.get()
+        if not sel:
+            return
+        custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
+        if not custom_item:
+            return
+        self.var_obj_scale_x.set(f"{float(custom_item.get('sx', 1.0)):.4f}")
+        self.var_obj_scale_y.set(f"{float(custom_item.get('sy', 1.0)):.4f}")
+        self.var_obj_off_x.set(f"{float(custom_item.get('ox', 0.0)):.4f}")
+        self.var_obj_off_y.set(f"{float(custom_item.get('oy', 0.0)):.4f}")
+        self.var_obj_rot.set(f"{float(custom_item.get('rot', 0.0)):.4f}")
+
+    def apply_selected_object_adjustments(self):
+        """Apply manual transform values to selected custom SVG object."""
+        sel = self.selected_obj.get()
+        custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
+        if not custom_item:
+            messagebox.showinfo("Aviso", "Selecione uma arte SVG (custom_*) para aplicar escala/offset/rotacao.")
+            return
+        try:
+            sx = float(self.var_obj_scale_x.get())
+            sy = float(self.var_obj_scale_y.get())
+            ox = float(self.var_obj_off_x.get())
+            oy = float(self.var_obj_off_y.get())
+            rot = float(self.var_obj_rot.get())
+        except ValueError:
+            messagebox.showerror("Erro", "Valores invalidos nos campos da arte SVG selecionada.")
+            return
+
+        custom_item['sx'] = sx
+        custom_item['sy'] = sy
+        custom_item['ox'] = ox
+        custom_item['oy'] = oy
+        custom_item['rot'] = rot
+        # Keep selected custom art on top of barcode/text in the composed workspace.
+        max_z = max(([float(i.get('z', 0.0)) for i in self.custom_scene_items] + [100.0]))
+        custom_item['z'] = max_z + 1.0
+        self.update_content_mode()
+
+    def _apply_selected_custom_transform_from_ui(self):
+        """Silently apply object transform fields to currently selected custom item, if any."""
+        sel = self.selected_obj.get()
+        custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
+        if not custom_item:
+            return
+        try:
+            custom_item['sx'] = float(self.var_obj_scale_x.get())
+            custom_item['sy'] = float(self.var_obj_scale_y.get())
+            custom_item['ox'] = float(self.var_obj_off_x.get())
+            custom_item['oy'] = float(self.var_obj_off_y.get())
+            custom_item['rot'] = float(self.var_obj_rot.get())
+        except ValueError:
+            return
 
     def on_mouse_wheel(self, event):
         """Handle zooming in the canvas with mouse wheel"""
@@ -789,6 +878,9 @@ class BalorStudioLite:
 
     def update_content_mode(self, from_btn=False):
         """Called when the user clicks 'Gerar' on the Text/Barcode tab, or after drag/add."""
+        # Apply pending values from object transform fields so both buttons keep behavior consistent.
+        self._apply_selected_custom_transform_from_ui()
+
         if from_btn:
             t = self.var_text_type.get()
             if t == "Texto": self.var_content_mode.set("text")
@@ -808,7 +900,7 @@ class BalorStudioLite:
         if self.var_content_mode.get() == "svg" and hasattr(self, 'main_svg_file') and self.main_svg_file and os.path.exists(self.main_svg_file):
             base_items.append({
                 'id': 'main_svg', 'file': self.main_svg_file,
-                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'color': '',
+                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'z': 0, 'color': '',
                 'visible': True, 'preserve_ids': True
             })
         elif self.var_content_mode.get() == "code128_serial" or self.var_content_mode.get() == "svg":
@@ -844,7 +936,7 @@ class BalorStudioLite:
             
             base_items.append({
                 'id': 'base', 'file': 'temp_barcode.svg',
-                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'color': '',
+                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'z': 10, 'color': '',
                 'visible': True, 'preserve_ids': True
             })
 
@@ -854,6 +946,10 @@ class BalorStudioLite:
                 c_name = self.obj_colors.get(item['id'])
                 if c_name:
                     item['color'] = self.pens.get(c_name, {}).get("color_hex", "")
+                print(
+                    f"[DEBUG] custom_item id={item['id']} ox={item.get('ox', 0)} oy={item.get('oy', 0)} "
+                    f"sx={item.get('sx', 1)} sy={item.get('sy', 1)} rot={item.get('rot', 0)} z={item.get('z', 0)} visible={item.get('visible', True)}"
+                )
                     
             composer_module.SceneComposer.compose_workspace(all_items, "temp_workspace.svg")
             self.current_svg = "temp_workspace.svg"
@@ -921,6 +1017,7 @@ class BalorStudioLite:
         sel = self.tree_objs.selection()
         if sel:
             self.selected_obj.set(sel[0])
+            self.sync_selected_object_controls()
             self.preview_manager.draw_selection()
 
     def on_tree_click(self, event):
@@ -1078,10 +1175,11 @@ class BalorStudioLite:
                         "--raster-y-res", str(0.1 * sc)
                     ] + cal_arg
                 elif content_mode == "code128_serial":
-                    # Use balor-svg.py for better vector marking of barcodes
+                    # Use composed workspace if available, otherwise fallback to barcode-only svg.
+                    svg_source = self.current_svg if self.current_svg and os.path.exists(self.current_svg) else "temp_barcode.svg"
                     cmd = [
                         sys.executable, "balor-svg.py", mode,
-                        "-f", "temp_barcode.svg",
+                        "-f", svg_source,
                         "-o", job_file,
                         "--xoff", str(ox),
                         "--yoff", str(oy),

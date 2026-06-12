@@ -135,6 +135,7 @@ class PreviewManager:
     def on_press(self, event):
         item = self.canvas.find_closest(event.x, event.y)
         tags = self.canvas.gettags(item)
+        print(f"[DEBUG][preview] on_press x={event.x} y={event.y} item={item} tags={tags}")
         
         # Reset drag start memory
         self.drag_data["start_x"] = event.x
@@ -165,6 +166,8 @@ class PreviewManager:
             for t in tags:
                 if t not in ("svg_obj", "current"):
                     self.gui.selected_obj.set(t)
+                    self.gui.sync_selected_object_controls()
+                    print(f"[DEBUG][preview] selected svg_obj={t} bbox={self.canvas.bbox(t)}")
                     break
             self.drag_data["mode"] = "move"
         else:
@@ -183,6 +186,8 @@ class PreviewManager:
         
         sel = self.gui.selected_obj.get()
         if not sel: return
+
+        print(f"[DEBUG][preview] on_drag mode={self.drag_data['mode']} sel={sel} dx={dx} dy={dy}")
         
         if self.drag_data["mode"] == "move":
             mm_dx = dx / self.scale
@@ -203,9 +208,15 @@ class PreviewManager:
                     if item['id'] == sel:
                         item['ox'] += mm_dx
                         item['oy'] += mm_dy
+                        max_z = max(([float(i.get('z', 0.0)) for i in self.gui.custom_scene_items] + [100.0]))
+                        item['z'] = max_z + 1.0
+                        self.gui.var_obj_off_x.set(f"{item['ox']:.4f}")
+                        self.gui.var_obj_off_y.set(f"{item['oy']:.4f}")
+                        print(f"[DEBUG][preview] move custom sel={sel} ox={item['ox']:.4f} oy={item['oy']:.4f} z={item['z']:.1f}")
                         break
             
             self.canvas.move(sel, dx, dy)
+            self.canvas.tag_raise(sel)
             self.draw_selection()
             
         elif self.drag_data["mode"] == "resize":
@@ -270,12 +281,21 @@ class PreviewManager:
                         item['sy'] *= fy
                         item['ox'] += mm_dx
                         item['oy'] += mm_dy
+                        self.gui.var_obj_scale_x.set(f"{item['sx']:.4f}")
+                        self.gui.var_obj_scale_y.set(f"{item['sy']:.4f}")
+                        self.gui.var_obj_off_x.set(f"{item['ox']:.4f}")
+                        self.gui.var_obj_off_y.set(f"{item['oy']:.4f}")
+                        print(f"[DEBUG][preview] resize custom sel={sel} sx={item['sx']:.4f} sy={item['sy']:.4f} ox={item['ox']:.4f} oy={item['oy']:.4f} fx={fx:.4f} fy={fy:.4f}")
                         break
 
             self.draw_selection()
 
     def on_release(self, event):
         if self.drag_data["mode"]:
+            sel = self.gui.selected_obj.get()
+            print(f"[DEBUG][preview] on_release mode={self.drag_data['mode']} sel={sel}")
+            if sel:
+                self.gui.sync_selected_object_controls()
             # Regenerate SVG to lock in accurate vectors
             self.gui.update_content_mode()
         self.drag_data["mode"] = None

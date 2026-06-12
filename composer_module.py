@@ -21,7 +21,22 @@ class SceneComposer:
         v = canvas_size / 2
         svg_content += f'<svg width="{canvas_size}mm" height="{canvas_size}mm" viewBox="{-v} {-v} {canvas_size} {canvas_size}" xmlns="http://www.w3.org/2000/svg">\n'
         
-        for item in items:
+        def _flatten_path(path, ox, oy, sx, sy, rot, orig_cx, orig_cy):
+            """Apply the same transform stack used by the workspace directly to the path geometry."""
+            try:
+                transformed = path.translated(complex(-orig_cx, -orig_cy))
+                if sx != 1 or sy != 1:
+                    transformed = transformed.scaled(sx, sy)
+                if rot:
+                    transformed = transformed.rotated(rot)
+                if ox or oy:
+                    transformed = transformed.translated(complex(ox, oy))
+                return transformed
+            except Exception:
+                return path
+
+        # Draw by explicit z-order when provided; higher values are rendered later (on top).
+        for item in sorted(items, key=lambda it: float(it.get('z', 0))):
             if not item.get('visible', True):
                 continue
                 
@@ -48,22 +63,28 @@ class SceneComposer:
                     orig_cx = (min_x + max_x) / 2
                     orig_cy = (min_y + max_y) / 2
             
-            # Simple SVG transformations
-            # Translate to final pos, rotate, scale, then translate back from original center
-            transform_str = f"translate({item.get('ox', 0)}, {item.get('oy', 0)}) rotate({item.get('rot', 0)}) scale({item.get('sx', 1)}, {item.get('sy', 1)}) translate({-orig_cx}, {-orig_cy})"
             fill_attr = f'fill="{item["color"]}"' if item.get("color") else ""
-            
-            svg_content += f'  <g transform="{transform_str}" {fill_attr}>\n'
-            
+
+            ox = float(item.get('ox', 0))
+            oy = float(item.get('oy', 0))
+            sx = float(item.get('sx', 1))
+            sy = float(item.get('sy', 1))
+            rot = float(item.get('rot', 0))
+
+            svg_content += f'  <g {fill_attr}>\n'
+
             for p, a in zip(paths, attrs):
-                d = p.d()
+                tp = _flatten_path(p, ox, oy, sx, sy, rot, orig_cx, orig_cy)
+                d = tp.d()
                 path_id = a.get('id', item['id']) if preserve_ids else item['id']
                 
                 # If color is forced at group level, we don't need path fill, but to be safe:
                 path_fill = ""
                 if not item.get("color") and "fill" in a:
                     path_fill = f'fill="{a["fill"]}"'
-                    
+                if len(tp) > 0:
+                    bb = tp.bbox()
+                    print(f"[DEBUG][composer] item={item['id']} path={path_id} bbox={bb} z={item.get('z', 0)}")
                 svg_content += f'    <path id="{path_id}" d="{d}" {path_fill} />\n'
                 
             svg_content += f'  </g>\n'
