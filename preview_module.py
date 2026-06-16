@@ -60,7 +60,9 @@ class PreviewManager:
             min_y = min(min_y, bb[2]); max_y = max(max_y, bb[3])
 
             # Use path ID or parent group ID
-            tag = attr.get('id', 'barcode')
+            tag = attr.get('id', 'barcode') # Fallback is usually only for un-ID'd paths
+            
+            # Since composer might prefix or use raw 'text', 'barcode'
             if tag not in bounds:
                 bounds[tag] = [float('inf'), float('inf'), float('-inf'), float('-inf')]
 
@@ -107,23 +109,30 @@ class PreviewManager:
         offset_y = cy + self.pan_y + gui_oy
 
         for path, attr in zip(paths, attributes):
-            obj_tag = attr.get('id', 'path')
+            # The composer preserves IDs on paths directly, but sometimes it might be on the parent
+            # SVG attributes or in a group. SVGPathTools puts it in `attr['id']`.
+            # If the path comes from our generator, it's explicitly 'barcode' or 'text'.
+            # If it's a composed item, it has its explicit ID.
+            obj_tag = attr.get('id', 'barcode') # Fallback
             
             # Look up assigned color in GUI
             color_name = self.gui.obj_colors.get(obj_tag, "Preto (#000000)")
             hex_color = self.gui.pens.get(color_name, {}).get("color_hex", "#007bff")
             
-            pts = []
-            for seg in path:
-                steps = 10
-                for i in range(steps + 1):
-                    p = seg.point(i/steps)
-                    pts.append((p.real * self.scale + offset_x, p.imag * self.scale + offset_y))
-            if len(pts) > 1:
-                flat_pts = [item for sublist in pts for item in sublist]
-                self.canvas.create_line(flat_pts, fill=hex_color, width=1, tags=(obj_tag, "svg_obj"))
+            for continuous_subpath in path.continuous_subpaths():
+                pts = []
+                for seg in continuous_subpath:
+                    steps = 10
+                    for i in range(steps + 1):
+                        p = seg.point(i/steps)
+                        pts.append((p.real * self.scale + offset_x, p.imag * self.scale + offset_y))
+                if len(pts) > 1:
+                    flat_pts = [item for sublist in pts for item in sublist]
+                    self.canvas.create_line(flat_pts, fill=hex_color, width=1, tags=(obj_tag, "svg_obj"))
 
         self.draw_selection()
+        if hasattr(self.gui, 'selected_obj') and self.gui.selected_obj.get():
+            self.gui.sync_selected_object_controls()
 
     def on_mouse_wheel(self, event):
         if event.num == 5 or event.delta < 0:
@@ -320,18 +329,14 @@ class PreviewManager:
             # Draw dimensions in MM
             w_mm, h_mm = self.obj_dims.get(sel, (0,0))
             
-            # Account for current scaling multiplier from vars just to be accurate in display
-            if sel == "barcode":
-                try:
-                    w_mm = w_mm * float(self.gui.var_barcode_w_scale.get())
-                    h_mm = float(self.gui.var_barcode_h.get())
-                except: pass
-            elif sel == "text":
-                try:
-                    ts = float(self.gui.var_text_scale.get())
-                    w_mm = w_mm * ts
-                    h_mm = h_mm * ts
-                except: pass
+            # Apply global scale only (the SVG already has individual text/barcode scales baked in)
+            try:
+                sc = float(self.gui.var_scale.get())
+            except:
+                sc = 1.0
+
+            w_mm = w_mm * sc
+            h_mm = h_mm * sc
 
             dim_text = f"{w_mm:.1f}x{h_mm:.1f} mm"
             self.canvas.create_text(
@@ -339,4 +344,4 @@ class PreviewManager:
                 text=dim_text, fill="red", font=("Arial", 10, "bold"), anchor="w", tags="dim_label"
             )
             
-            self.gui.lbl_filename.config(text=f"Selecionado: {'Barcode' if sel=='barcode' else 'Texto Serial'} ({dim_text})")
+            self.gui.lbl_filename.config(text=f"Selecionado: {'Barcode' if sel=='barcode' else 'Texto Serial' if sel=='text' else 'Arte'} ({dim_text})")

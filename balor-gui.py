@@ -14,6 +14,7 @@ import barcode_module
 import pdf_module
 import preview_module
 import composer_module
+import db_module
 
 # Balor Imports
 import balor.sender
@@ -92,9 +93,15 @@ class BalorStudioLite:
         self.obj_colors = {"barcode": "Preto (#000000)", "text": "Preto (#000000)"}
         self.obj_visibility = {}
         self.pdf_serials = []
+        self.db_serials = [] # Records from database: [{'id', 'serial', 'criado_em'}]
         self.current_serial_idx = -1
         self.var_batch_active = tk.BooleanVar(value=False)
+        self.var_db_mode = tk.BooleanVar(value=False) # True if using Database instead of PDF
+        self.var_auto_sync = tk.BooleanVar(value=False) # True if auto-polling DB
         self.var_current_serial = tk.StringVar(value="")
+        
+        # Database Manager
+        self.db_manager = db_module.DBManager()
         
         # SVG Metadata
         self.svg_raw_width = 1.0
@@ -362,6 +369,38 @@ class BalorStudioLite:
         self.btn_next_serial = ttk.Button(self.tab_batch, text="Avançar Manual", command=self.next_batch_serial, state="disabled")
         self.btn_next_serial.pack(fill="x", pady=2)
         
+        # Tab Batch Database
+        self.tab_db = ttk.Frame(self.notebook, padding=10)
+        self.notebook.add(self.tab_db, text="Lote (Banco)")
+        
+        db_top_frame = ttk.Frame(self.tab_db)
+        db_top_frame.pack(fill="x", pady=5)
+        ttk.Button(db_top_frame, text="Sincronizar Banco (Rpi)", command=self.load_db_batch).pack(side=tk.LEFT, expand=True, padx=2)
+        ttk.Button(db_top_frame, text="Limpar Lista", command=self.clear_db_list).pack(side=tk.LEFT, expand=True, padx=2)
+        
+        ttk.Checkbutton(db_top_frame, text="Auto-Sync (Real-time)", variable=self.var_auto_sync, command=self.toggle_auto_sync).pack(side=tk.LEFT, padx=10)
+        
+        db_list_frame = ttk.Frame(self.tab_db)
+        db_list_frame.pack(fill="both", expand=True, pady=5)
+        
+        db_scroll = ttk.Scrollbar(db_list_frame)
+        db_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        self.tree_db = ttk.Treeview(db_list_frame, columns=("id", "serial", "data"), show="headings", yscrollcommand=db_scroll.set)
+        self.tree_db.heading("id", text="ID")
+        self.tree_db.heading("serial", text="Serial")
+        self.tree_db.heading("data", text="Data/Hora")
+        self.tree_db.column("id", width=50, anchor="center")
+        self.tree_db.column("serial", width=120, anchor="center")
+        self.tree_db.column("data", width=150, anchor="center")
+        self.tree_db.pack(side=tk.LEFT, fill="both", expand=True)
+        db_scroll.config(command=self.tree_db.yview)
+        
+        self.tree_db.bind('<Double-1>', self.on_db_tree_double_click)
+        
+        self.lbl_db_status = ttk.Label(self.tab_db, text="Banco desconectado")
+        self.lbl_db_status.pack(pady=2)
+
         self.notebook.bind("<<NotebookTabChanged>>", self._on_tab_changed)
 
         # --- BOTTOM: Actions ---
@@ -499,6 +538,7 @@ class BalorStudioLite:
             if self.pdf_serials:
                 self.current_serial_idx = 0
                 self.var_batch_active.set(True)
+                self.var_db_mode.set(False)
                 self.btn_next_serial.config(state="normal")
                 
                 # Popula a arvore
@@ -515,6 +555,12 @@ class BalorStudioLite:
                 messagebox.showwarning("Aviso", "Nenhuma serial encontrada no PDF.")
 
     def next_batch_serial(self):
+        if self.var_db_mode.get():
+            self._next_db_serial()
+        else:
+            self._next_pdf_serial()
+
+    def _next_pdf_serial(self):
         if not self.pdf_serials: return
         
         # Mark current as Done if progressing naturally
@@ -769,10 +815,30 @@ class BalorStudioLite:
         self.update_content_mode()
 
     def sync_selected_object_controls(self):
-        """Sync selected custom SVG object transform values into UI fields."""
+        """Sync selected custom SVG object transform values into UI fields and update Global Scale."""
         sel = self.selected_obj.get()
         if not sel:
             return
+            
+        # Update Dimensions in the Global Scale panel for the selected object
+        if hasattr(self, 'preview_manager') and hasattr(self.preview_manager, 'obj_dims'):
+            dims = self.preview_manager.obj_dims.get(sel)
+            if dims and dims[0] > 0 and dims[1] > 0:
+                # dims are in mm. The Global panel uses cm.
+                # Only update if the object actually has a non-zero size
+                self.svg_raw_width = dims[0]
+                self.svg_raw_height = dims[1]
+                
+                # Apply current scale to show final cm size
+                try:
+                    sc = float(self.var_scale.get())
+                except:
+                    sc = 1.0
+                    
+                self.var_width_cm.set(f"{(dims[0] * sc / 10.0):.2f}")
+                self.var_height_cm.set(f"{(dims[1] * sc / 10.0):.2f}")
+
+        # Sync Transform Controls
         custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
         if not custom_item:
             return
@@ -964,6 +1030,7 @@ class BalorStudioLite:
             self._populate_treeview(is_custom_svg=(self.var_content_mode.get() == "svg"))
             self.selected_obj.set(current_sel)
             self.preview_manager.draw_selection()
+            self.sync_selected_object_controls() # Ensure dimensions don't revert to full bounds
             return
             
         self.svg_bounds = (0, self.svg_raw_width, 0, self.svg_raw_height)
@@ -1225,13 +1292,188 @@ class BalorStudioLite:
 
     def auto_advance_batch(self):
         """Automatically called after a successful mark if batch is active."""
-        if self.var_batch_active.get() and self.current_serial_idx < len(self.pdf_serials) - 1:
+        if not self.var_batch_active.get(): return
+
+        if self.var_db_mode.get():
+            # DB MODE: Update Raspberry Pi Database first
+            current_record = self.db_serials[self.current_serial_idx]
+            log_id = current_record['id']
+            
+            def _update_task():
+                success = self.db_manager.mark_as_engraved(log_id)
+                if success:
+                    print(f"[AUTO] ID {log_id} marcado no banco.")
+                    self.root.after(0, self._finish_auto_advance)
+                else:
+                    self.root.after(0, lambda: messagebox.showerror("Erro Banco", "Falha ao atualizar status no banco!"))
+
+            threading.Thread(target=_update_task, daemon=True).start()
+        else:
+            # PDF MODE: Just advance UI
+            if self.current_serial_idx < len(self.pdf_serials) - 1:
+                self._finish_auto_advance()
+            else:
+                messagebox.showinfo("Fim do Lote", "Todas as peças do PDF foram gravadas.")
+                self.var_batch_active.set(False)
+                self.btn_next_serial.config(state="disabled")
+
+    def _finish_auto_advance(self):
+        if self.var_db_mode.get():
+            self._next_db_serial()
+        else:
             self.next_batch_serial()
-            self.var_status.set("Pronto para o próximo!")
-        elif self.var_batch_active.get():
-            messagebox.showinfo("Fim do Lote", "Todas as peças do PDF foram gravadas.")
+        self.var_status.set("Pronto para o próximo!")
+
+    def toggle_auto_sync(self):
+        if self.var_auto_sync.get():
+            self.lbl_db_status.config(text="Auto-Sync: Ativado. Monitorando banco...", foreground="blue")
+            threading.Thread(target=self._auto_sync_loop, daemon=True).start()
+        else:
+            self.lbl_db_status.config(text="Auto-Sync: Desativado.", foreground="black")
+
+    def _auto_sync_loop(self):
+        while self.var_auto_sync.get():
+            try:
+                serials = self.db_manager.get_pending_serials()
+                self.root.after(0, lambda s=serials: self._merge_db_results_silently(s))
+            except Exception as e:
+                print(f"[AUTO-SYNC] Erro no polling: {e}")
+            time.sleep(3) # Poll every 3 seconds
+
+    def _merge_db_results_silently(self, new_serials):
+        """Appends new database serials and removes absent ones without interrupting selection if possible."""
+        existing_ids = {row['id'] for row in self.db_serials}
+        new_ids = {row['id'] for row in new_serials}
+        
+        ids_to_remove = existing_ids - new_ids
+        added_count = 0
+        removed_count = len(ids_to_remove)
+        
+        # Add new
+        for row in new_serials:
+            if row['id'] not in existing_ids:
+                self.db_serials.append(row)
+                self.tree_db.insert("", "end", iid=str(row['id']), 
+                                  values=(row['id'], row['serial'], row['criado_em'].strftime("%d/%m %H:%M")))
+                added_count += 1
+                
+        # Remove absent
+        if ids_to_remove:
+            self.db_serials = [row for row in self.db_serials if row['id'] not in ids_to_remove]
+            for r_id in ids_to_remove:
+                if self.tree_db.exists(str(r_id)):
+                    self.tree_db.delete(str(r_id))
+                    
+            if not self.db_serials:
+                self.var_batch_active.set(False)
+                self.lbl_db_status.config(text="Fila vazia.", foreground="black")
+                self.current_serial_idx = -1
+            else:
+                if self.current_serial_idx >= len(self.db_serials) or self.current_serial_idx < 0:
+                    self.current_serial_idx = 0
+                
+                # Check if current selection is still valid, if not re-select
+                sel = self.tree_db.selection()
+                if not sel or sel[0] in [str(i) for i in ids_to_remove]:
+                    first_row = self.db_serials[self.current_serial_idx]
+                    self.var_input_text.set(first_row['serial'])
+                    self.tree_db.selection_set(str(first_row['id']))
+                    self.update_content_mode()
+
+        if added_count > 0 or removed_count > 0:
+            status_text = f"Auto-Sync: {len(self.db_serials)} pendentes."
+            if added_count > 0: status_text += f" (+{added_count})"
+            if removed_count > 0: status_text += f" (-{removed_count})"
+            self.lbl_db_status.config(text=status_text, foreground="blue")
+            
+            # If the list was empty, automatically select the first new item
+            if len(self.db_serials) == added_count and added_count > 0:
+                self.current_serial_idx = 0
+                self.var_batch_active.set(True)
+                self.var_db_mode.set(True)
+                
+                first_row = self.db_serials[0]
+                self.var_input_text.set(first_row['serial'])
+                self.tree_db.selection_set(str(first_row['id']))
+                self.update_content_mode()
+
+    def load_db_batch(self):
+        """Fetch pending serials from Raspberry Pi PostgreSQL database."""
+        self.lbl_db_status.config(text="Buscando dados no banco...", foreground="blue")
+        self.root.update_idletasks()
+        
+        def _task():
+            serials = self.db_manager.get_pending_serials()
+            self.root.after(0, lambda: self._process_db_results(serials))
+            
+        threading.Thread(target=_task, daemon=True).start()
+
+    def _process_db_results(self, serials):
+        if serials:
+            self.db_serials = serials
+            self.current_serial_idx = 0
+            self.var_batch_active.set(True)
+            self.var_db_mode.set(True) # Database mode
+            
+            # Populate Treeview
+            for i in self.tree_db.get_children():
+                self.tree_db.delete(i)
+            
+            for row in serials:
+                self.tree_db.insert("", "end", iid=str(row['id']), 
+                                  values=(row['id'], row['serial'], row['criado_em'].strftime("%d/%m %H:%M")))
+            
+            self.lbl_db_status.config(text=f"{len(serials)} seriais pendentes no banco.", foreground="green")
+            
+            # Select first item
+            self.var_input_text.set(serials[0]['serial'])
+            self.tree_db.selection_set(str(serials[0]['id']))
+            self.update_content_mode()
+        else:
+            self.lbl_db_status.config(text="Nenhum serial pendente (Aprovado + Não Gravado).", foreground="black")
+            if not self.var_db_mode.get():
+                self.var_batch_active.set(False)
+
+    def clear_db_list(self):
+        for i in self.tree_db.get_children():
+            self.tree_db.delete(i)
+        self.db_serials = []
+        self.var_batch_active.set(False)
+        self.lbl_db_status.config(text="Lista limpa.")
+
+    def on_db_tree_double_click(self, event):
+        item_id = self.tree_db.identify_row(event.y)
+        if item_id:
+            # Find in db_serials list
+            for idx, row in enumerate(self.db_serials):
+                if str(row['id']) == item_id:
+                    self.current_serial_idx = idx
+                    self.var_input_text.set(row['serial'])
+                    self.tree_db.selection_set(item_id)
+                    self.update_content_mode()
+                    break
+
+    def _next_db_serial(self):
+        """Advances to the next serial in database mode."""
+        if not self.db_serials: return
+        
+        current_id = str(self.db_serials[self.current_serial_idx]['id'])
+        if self.tree_db.exists(current_id):
+            self.tree_db.delete(current_id) # Remove from list as it is done
+            
+        if self.current_serial_idx < len(self.db_serials) - 1:
+            self.db_serials.pop(self.current_serial_idx)
+            if self.db_serials:
+                self.current_serial_idx = 0 # Take the next one in list
+                next_row = self.db_serials[0]
+                self.var_input_text.set(next_row['serial'])
+                self.tree_db.selection_set(str(next_row['id']))
+                self.update_content_mode()
+                self.lbl_db_status.config(text=f"{len(self.db_serials)} pendentes.")
+        else:
+            self.db_serials = []
+            self.lbl_db_status.config(text="Fim da fila do banco.", foreground="green")
             self.var_batch_active.set(False)
-            self.btn_next_serial.config(state="disabled")
 
 if __name__ == "__main__":
     root = tk.Tk()

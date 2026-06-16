@@ -15,7 +15,9 @@ python-barcode
 # Document and G-code processing
 pypdf
 gcodeparser
+psycopg2-binary
 
 # Utility scripts dependencies
+python-dotenv
 matplotlib
 dpkt
