@@ -1,0 +1,50 @@
+{
+    "ip_clp": "192.168.1.5",
+    "port_clp": "502",
+    "ip_robo": "192.168.1.8",
+    "port_robo": "502",
+    "actions": [
+        {
+            "name": "Grava\u00e7\u00e3o Frontal",
+            "mem": "100",
+            "tgt": "Rob\u00f4"
+        },
+        {
+            "name": "Grava\u00e7\u00e3o Traseira",
+            "mem": "101",
+            "tgt": "Rob\u00f4"
+        },
+        {
+            "name": "TESTE CLP (M70)",
+            "mem": "80",
+            "tgt": "CLP"
+        },
+        {
+            "name": "INSPE\u00c7AO OK",
+            "mem": "102",
+            "tgt": "Rob\u00f4"
+        },
+        {
+            "name": "INSPE\u00c7\u00c3O NG",
+            "mem": "103",
+            "tgt": "Rob\u00f4"
+        }
+    ],
+    "statuses": [
+        {
+            "name": "CLP M70",
+            "mem": "70",
+            "tgt": "CLP"
+        },
+        {
+            "name": "status 1",
+            "mem": "100",
+            "tgt": "Rob\u00f4"
+        },
+        {
+            "name": "status 2",
+            "mem": "101",
+            "tgt": "Rob\u00f4"
+        }
+    ]
+}
