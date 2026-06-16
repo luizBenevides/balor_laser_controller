@@ -93,8 +93,16 @@ class ModbusDevice:
                 reg_addr = addr - 10000 if addr > 10000 else addr
                 result = self.client.read_discrete_inputs(reg_addr, 1)
             else:
-                # Leitura direta sem offset
+                # Tenta Coil (Padrão)
                 result = self.client.read_coils(addr, 1)
+                
+                # Fallback para Robô: Se Coil falhar, tenta Holding Register (4xxxx) ou Input Register (3xxxx)
+                if result is None and self.name == "Robô":
+                    print(f"[MODBUS READ - {self.name}] Coil {addr} falhou. Tentando Holding Register...")
+                    result = self.client.read_holding_registers(addr, 1)
+                    if result is None:
+                        print(f"[MODBUS READ - {self.name}] Holding falhou. Tentando Input Register...")
+                        result = self.client.read_input_registers(addr, 1)
 
             if result is not None:
                 return True, str(result[0])
@@ -247,8 +255,9 @@ class PLCPanelApp:
 
         btn_frame = ttk.Frame(self.config_frame)
         btn_frame.grid(row=2, column=0, columnspan=4, pady=15, sticky="ew")
-        ttk.Button(btn_frame, text="+ Adicionar Ação (Escrita)", command=lambda: self.add_action_row()).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="+ Adicionar Status (Leitura)", command=lambda: self.add_status_row()).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="+ Adicionar Ação", command=lambda: self.add_action_row()).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="+ Adicionar Status", command=lambda: self.add_status_row()).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="SCAN ROBÔ", command=self.quick_scan_robo, style="ToggleOn.TButton").pack(side="left", padx=20)
         ttk.Button(btn_frame, text="Salvar Configurações", command=self.save_config).pack(side="right", padx=5)
 
         self.action_panel_frame = ttk.LabelFrame(self.scrollable_frame, text="Controle Manual", padding=10)
@@ -449,12 +458,11 @@ class PLCPanelApp:
                 
                 if dev and dev.is_connected and mem_str.isdigit():
                     ok, val = dev.send_read(mem_str)
-                    if ok: 
+                    if ok:
                         self.root.after(0, lambda u=uid, v=val: self._update_led(u, v))
                     else: 
                         self.root.after(0, lambda u=uid: self._set_led_error(u))
                 else:
-                    # Caso desconectado ou sem endereço
                     self.root.after(0, lambda u=uid: self._clear_led(u))
                     
             time.sleep(1.0)
@@ -464,6 +472,56 @@ class PLCPanelApp:
         if item:
             item["led_canvas"].itemconfig(item["led_circle"], fill="gray")
             item["val_var"].set("---")
+
+    def quick_scan_robo(self):
+        if not self.dev_robo or not self.dev_robo.is_connected:
+            messagebox.showwarning("Aviso", "Conecte o Robô primeiro!")
+            return
+        
+        self.log("Iniciando SCAN ampliado no Robô (Blocos 0, 1000, 2000)...")
+        def _task():
+            client = self.dev_robo.client
+            found = []
+            
+            # Vamos testar 3 blocos comuns em robôs industriais
+            blocks = [0, 1000, 2000]
+            limit = 120
+            
+            for start in blocks:
+                print(f"[SCAN] Verificando faixa {start} a {start+limit}...")
+                
+                # Scan Coils
+                res = client.read_coils(start, limit)
+                if res:
+                    for i, v in enumerate(res):
+                        if v: found.append(f"Coil {start+i}: {v}")
+                
+                # Scan Inputs
+                res = client.read_discrete_inputs(start, limit)
+                if res:
+                    for i, v in enumerate(res):
+                        if v: found.append(f"Input {start+i}: {v}")
+
+                # Scan Holding
+                res = client.read_holding_registers(start, limit)
+                if res:
+                    for i, v in enumerate(res):
+                        if v != 0: found.append(f"Holding {start+i}: {v}")
+
+                # Scan InRegs
+                res = client.read_input_registers(start, limit)
+                if res:
+                    for i, v in enumerate(res):
+                        if v != 0: found.append(f"InReg {start+i}: {v}")
+
+            if found:
+                msg_text = f"Sucesso! Encontrados {len(found)} endereços ativos:\n\n" + "\n".join(found[:25])
+                self.root.after(0, lambda: messagebox.showinfo("Scan Concluído", msg_text))
+                for f in found: print(f"[SCAN SUCESSO] {f}")
+            else:
+                self.root.after(0, lambda: messagebox.showinfo("Scan Concluído", "Nenhum valor ativo encontrado nas faixas 0, 1000 e 2000.\n\nCertifique-se de que o Robô está em modo Automático ou com alguma I/O ligada."))
+        
+        threading.Thread(target=_task, daemon=True).start()
 
 if __name__ == "__main__":
     root = tk.Tk()
