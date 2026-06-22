@@ -21,6 +21,7 @@ class PreviewManager:
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
+        self.canvas.bind("<Double-Button-1>", self.on_double_click)
         
         # Dimension memory (mm)
         self.obj_dims = {"barcode": (0,0), "text": (0,0)}
@@ -32,7 +33,7 @@ class PreviewManager:
         self.canvas.create_line(w/2, 0, w/2, h, fill="#ccc", dash=(4,4))
         self.canvas.create_line(0, h/2, w, h/2, fill="#ccc", dash=(4,4))
 
-    def load_svg(self, svg_path, preserve_transforms=True):
+    def load_svg(self, svg_path, preserve_transforms=True, reset_fit=False):
         if not svg_path or svg_path == "DUMMY" or not os.path.exists(svg_path):
             return
 
@@ -93,7 +94,7 @@ class PreviewManager:
         # Fixed coordinate system: the composer always puts (0,0) at the center of the drawing area.
         # We calculate a reasonable initial scale if not set, but don't constantly shift the camera.
         margin = 40
-        if not hasattr(self, 'base_scale') or self.gui.var_content_mode.get() != "svg":
+        if not hasattr(self, 'base_scale') or reset_fit:
             self.base_scale = min((w - margin) / (svg_w if svg_w>0 else 1), (h - margin) / (svg_h if svg_h>0 else 1))
             
         self.scale = self.base_scale * self.zoom
@@ -271,6 +272,15 @@ class PreviewManager:
                     oy = float(self.gui.var_offset_y.get())
                     self.gui.var_offset_x.set(f"{ox + mm_dx:.2f}")
                     self.gui.var_offset_y.set(f"{oy + mm_dy:.2f}")
+                    
+                    if self.gui.var_group_barcode.get():
+                        ts = float(self.gui.var_text_scale.get())
+                        self.gui.var_text_scale.set(f"{ts * (fx + fy)/2.0:.3f}")
+                        
+                        tx = float(self.gui.var_text_x_off.get())
+                        ty = float(self.gui.var_text_y_off.get())
+                        self.gui.var_text_x_off.set(f"{tx * fx:.3f}")
+                        self.gui.var_text_y_off.set(f"{ty * fy:.3f}")
                 except: pass
             elif sel == "text":
                 try:
@@ -296,8 +306,69 @@ class PreviewManager:
                         self.gui.var_obj_off_y.set(f"{item['oy']:.4f}")
                         print(f"[DEBUG][preview] resize custom sel={sel} sx={item['sx']:.4f} sy={item['sy']:.4f} ox={item['ox']:.4f} oy={item['oy']:.4f} fx={fx:.4f} fy={fy:.4f}")
                         break
+            
+        elif self.drag_data["mode"] == "rotate":
+            import math
+            cx = self.drag_data.get("center_x", event.x)
+            cy = self.drag_data.get("center_y", event.y)
+            dx = event.x - cx
+            dy = event.y - cy
+            curr_angle = math.degrees(math.atan2(dy, dx))
+            diff_angle = curr_angle - self.drag_data.get("start_angle", 0.0)
+            
+            target_rot = self.drag_data.get("start_rot", 0.0) + diff_angle
+            target_rot = target_rot % 360
+            
+            if sel == "barcode":
+                self.gui.var_barcode_rot.set(f"{target_rot:.1f}")
+            elif sel == "text":
+                self.gui.var_text_rot.set(f"{target_rot:.1f}")
+            else:
+                for item_obj in self.gui.custom_scene_items:
+                    if item_obj['id'] == sel:
+                        item_obj['rot'] = target_rot
+                        self.gui.var_obj_rot.set(f"{target_rot:.1f}")
+                        break
 
-            self.draw_selection()
+        self.draw_selection()
+
+    def on_double_click(self, event):
+        item = self.canvas.find_closest(event.x, event.y)
+        tags = self.canvas.gettags(item)
+        print(f"[DEBUG][preview] on_double_click item={item} tags={tags}")
+        
+        for t in tags:
+            if t not in ("svg_obj", "current", "sel_box", "handle", "dim_label"):
+                self.gui.selected_obj.set(t)
+                self.gui.sync_selected_object_controls()
+                self.drag_data["mode"] = "rotate"
+                
+                bbox = self.canvas.bbox(t)
+                if bbox:
+                    cx = (bbox[0] + bbox[2]) / 2
+                    cy = (bbox[1] + bbox[3]) / 2
+                    self.drag_data["center_x"] = cx
+                    self.drag_data["center_y"] = cy
+                    
+                    import math
+                    dx = event.x - cx
+                    dy = event.y - cy
+                    self.drag_data["start_angle"] = math.degrees(math.atan2(dy, dx))
+                    
+                    if t == "barcode":
+                        try: self.drag_data["start_rot"] = float(self.gui.var_barcode_rot.get())
+                        except: self.drag_data["start_rot"] = 0.0
+                    elif t == "text":
+                        try: self.drag_data["start_rot"] = float(self.gui.var_text_rot.get())
+                        except: self.drag_data["start_rot"] = 0.0
+                    else:
+                        for item_obj in self.gui.custom_scene_items:
+                            if item_obj['id'] == t:
+                                self.drag_data["start_rot"] = item_obj['rot']
+                                break
+                    print(f"[DEBUG][preview] entered rotate mode for {t} cx={cx} cy={cy} start_angle={self.drag_data['start_angle']}")
+                    self.draw_selection()
+                break
 
     def on_release(self, event):
         if self.drag_data["mode"]:
@@ -318,12 +389,13 @@ class PreviewManager:
         
         bbox = self.canvas.bbox(sel)
         if bbox:
-            self.canvas.create_rectangle(bbox, outline="red", dash=(4,4), tags="sel_box")
+            outline_color = "#ff8c00" if self.drag_data.get("mode") == "rotate" else "red"
+            self.canvas.create_rectangle(bbox, outline=outline_color, dash=(4,4), tags="sel_box")
             h_size = 5
             # Bottom-Right handle
             self.canvas.create_rectangle(
                 bbox[2]-h_size, bbox[3]-h_size, bbox[2]+h_size, bbox[3]+h_size, 
-                fill="red", tags=("handle", "br")
+                fill=outline_color, tags=("handle", "br")
             )
             
             # Draw dimensions in MM

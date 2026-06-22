@@ -33,6 +33,14 @@ Esta habilidade orienta o agente na criação, modificação e depuração de fl
   - `addr >= 40000`: Holding Registers (16-bit R/W, mapeado subtraindo 40000)
 - **Fallback do Robô**: Se ler ou escrever em um Coil no Robô falhar, utilize Holding Registers ou Input Registers no mesmo endereço como fallback.
 
+#### C. Padrão de Arte e Presets (Arte 1 - Serial Banco)
+Para manter a compatibilidade e padronização das gravações geradas a partir dos seriais do banco de dados, utilize o preset `"Arte 1 (Serial Banco)"` com as seguintes especificações técnicas:
+- **Tipo de Código de Barras**: `gs1_128` (EAN 128C)
+- **Fonte do Serial**: `Barcode Font34` (resolvido a partir de `"Barcode Font34.ttf"` ou diretório de fontes do Windows)
+- **Espaçamento de Texto (Text Space / Character Spacing)**: `0.906`
+- **Dimensões Físicas**: Largura (X) de `39.620 mm` e Altura total (Y) de `15.500 mm` (sendo o texto do Serial no topo com `6.0 mm` de altura, espaçamento de `3.0 mm` e o código de barras embaixo com `6.5 mm` de altura). Ambos agrupados no mesmo objeto.
+- **Ajustes de Posição**: Ângulos e coordenadas X e Y da laser ajustáveis e salvos diretamente no arquivo de presets do estúdio (`laser_presets.json`).
+
 ---
 
 ### 2. O Ciclo do Fluxo Automático
