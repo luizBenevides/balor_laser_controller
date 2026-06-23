@@ -83,6 +83,11 @@ class BalorStudioLite:
         # SCENE GRAPH (Composition Engine)
         self.custom_scene_items = [] 
         # Will hold dicts: {'id', 'file', 'ox', 'oy', 'sx', 'sy', 'rot', 'color', 'visible'}
+        self.combined_offsets = {
+            'base_1': [-20.0, 0.0],
+            'base_2': [20.0, 0.0]
+        }
+        self.is_combined_mode = False
         
         # Pen (Layer) Management
 
@@ -168,12 +173,37 @@ class BalorStudioLite:
         ttk.Label(conn_frame, textvariable=self.var_status).pack(side=tk.LEFT)
         ttk.Button(conn_frame, text="Testar Conexão", command=self.connect_laser).pack(side=tk.LEFT, padx=5)
 
-        # --- LEFT: Parameters ---
-        left_scroll_frame = ttk.Frame(main_frame)
-        left_scroll_frame.grid(row=1, column=0, sticky="nsw", padx=5)
+        # --- LEFT: Parameters (Scrollable Canvas) ---
+        left_container = ttk.Frame(main_frame)
+        left_container.grid(row=1, column=0, sticky="nsew", padx=5)
         
-        # Laser Params -> Pen Params
-        param_frame = ttk.LabelFrame(left_scroll_frame, text="Parâmetros da Caneta", padding="10")
+        bg_color = ttk.Style().lookup("TFrame", "background")
+        left_canvas = tk.Canvas(left_container, borderwidth=0, highlightthickness=0, bg=bg_color, width=280)
+        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        left_scrollbar = ttk.Scrollbar(left_container, orient=tk.VERTICAL, command=left_canvas.yview)
+        left_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        left_canvas.configure(yscrollcommand=left_scrollbar.set)
+        
+        left_scroll_frame = ttk.Frame(left_canvas)
+        canvas_window = left_canvas.create_window((0, 0), window=left_scroll_frame, anchor="nw")
+        
+        left_scroll_frame.bind("<Configure>", lambda e: left_canvas.configure(scrollregion=left_canvas.bbox("all")))
+        left_canvas.bind("<Configure>", lambda e: left_canvas.itemconfig(canvas_window, width=e.width))
+        
+        # Left sidebar Notebook to save vertical space
+        left_notebook = ttk.Notebook(left_scroll_frame)
+        left_notebook.pack(fill="x", pady=5)
+        
+        tab_left_pen = ttk.Frame(left_notebook)
+        tab_left_trans = ttk.Frame(left_notebook)
+        
+        left_notebook.add(tab_left_pen, text="Caneta / Hatch")
+        left_notebook.add(tab_left_trans, text="Posição / Escala")
+        
+        # Laser Params -> Pen Params (Tab 1)
+        param_frame = ttk.LabelFrame(tab_left_pen, text="Parâmetros da Caneta", padding="10")
         param_frame.pack(fill="x", pady=5)
         
         pen_sel_frame = ttk.Frame(param_frame)
@@ -187,8 +217,8 @@ class BalorStudioLite:
         self._add_entry(param_frame, "Velocidade (mm/s):", self.var_speed, 2)
         self._add_entry(param_frame, "Frequência (kHz):", self.var_freq, 3)
 
-        # Hatch Params
-        hatch_frame = ttk.LabelFrame(left_scroll_frame, text="Preenchimento da Caneta", padding="10")
+        # Hatch Params (Tab 1)
+        hatch_frame = ttk.LabelFrame(tab_left_pen, text="Preenchimento da Caneta", padding="10")
         hatch_frame.pack(fill="x", pady=5)
         
         chk_hatch = ttk.Checkbutton(hatch_frame, text="Ativar Hatch", variable=self.var_hatch_enable)
@@ -199,8 +229,8 @@ class BalorStudioLite:
         
         ttk.Button(hatch_frame, text="Salvar Caneta", command=self.save_pen_settings).grid(row=3, column=0, columnspan=2, pady=5)
 
-        # Offsets and Scaling
-        offset_frame = ttk.LabelFrame(left_scroll_frame, text="Global Transform", padding="10")
+        # Offsets and Scaling (Tab 2)
+        offset_frame = ttk.LabelFrame(tab_left_trans, text="Global Transform", padding="10")
         offset_frame.pack(fill="x", pady=5)
         
         self.entry_x = self._add_entry(offset_frame, "Offset X (mm):", self.var_offset_x, 0)
@@ -217,7 +247,32 @@ class BalorStudioLite:
         self.var_width_mm.trace_add("write", self._on_width_mm_change)
         self.var_height_mm.trace_add("write", self._on_height_mm_change)
 
-        # Presets
+        # Selected Object Transform Adjustment Panel (Tab 2)
+        self.obj_adj_frame = ttk.LabelFrame(tab_left_trans, text="Ajuste do Objeto Selecionado", padding="10")
+        self.obj_adj_frame.pack(fill="x", pady=5)
+        
+        self.lbl_selected_obj_name = ttk.Label(self.obj_adj_frame, text="Nenhum objeto selecionado", font=("Arial", 9, "bold"))
+        self.lbl_selected_obj_name.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0,5))
+        
+        ttk.Label(self.obj_adj_frame, text="Escala X | Escala Y:").grid(row=1, column=0, columnspan=2, sticky="w")
+        self.entry_obj_scale_x = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_scale_x, width=10)
+        self.entry_obj_scale_x.grid(row=2, column=0, padx=2, sticky="w")
+        self.entry_obj_scale_y = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_scale_y, width=10)
+        self.entry_obj_scale_y.grid(row=2, column=1, padx=2, sticky="w")
+        
+        ttk.Label(self.obj_adj_frame, text="Offset X | Offset Y (mm):").grid(row=3, column=0, columnspan=2, sticky="w", pady=(5,0))
+        self.entry_obj_off_x = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_off_x, width=10)
+        self.entry_obj_off_x.grid(row=4, column=0, padx=2, sticky="w")
+        self.entry_obj_off_y = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_off_y, width=10)
+        self.entry_obj_off_y.grid(row=4, column=1, padx=2, sticky="w")
+        
+        ttk.Label(self.obj_adj_frame, text="Rotação (graus):").grid(row=5, column=0, columnspan=2, sticky="w", pady=(5,0))
+        self.entry_obj_rot = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_rot, width=10)
+        self.entry_obj_rot.grid(row=6, column=0, padx=2, sticky="w")
+        
+        ttk.Button(self.obj_adj_frame, text="Aplicar no Objeto", command=self.apply_selected_object_adjustments).grid(row=7, column=0, columnspan=2, pady=10)
+
+        # Presets (Always visible at the bottom of the left sidebar)
         preset_frame = ttk.LabelFrame(left_scroll_frame, text="Presets", padding="10")
         preset_frame.pack(fill="x", pady=5)
         
@@ -326,16 +381,7 @@ class BalorStudioLite:
         ttk.Checkbutton(self.adj_frame, text="Agrupar Código + Serial (1 Objeto)", variable=self.var_group_barcode, command=lambda: self.update_content_mode(from_btn=True)).grid(row=6, column=0, columnspan=3, pady=5, sticky="w")
         ttk.Button(self.adj_frame, text="Aplicar Ajustes", command=lambda: self.update_content_mode(from_btn=True)).grid(row=7, column=0, columnspan=3, pady=5)
 
-        ttk.Separator(self.adj_frame, orient='horizontal').grid(row=8, column=0, columnspan=3, sticky="ew", pady=6)
-        ttk.Label(self.adj_frame, text="Arte SVG selecionada: Escala X | Escala Y").grid(row=9, column=0, columnspan=3, sticky="w")
-        ttk.Entry(self.adj_frame, textvariable=self.var_obj_scale_x, width=8).grid(row=10, column=0, padx=2)
-        ttk.Entry(self.adj_frame, textvariable=self.var_obj_scale_y, width=8).grid(row=10, column=1, padx=2)
-        ttk.Label(self.adj_frame, text="Offset X | Offset Y").grid(row=11, column=0, columnspan=3, sticky="w", pady=(5,0))
-        ttk.Entry(self.adj_frame, textvariable=self.var_obj_off_x, width=8).grid(row=12, column=0, padx=2)
-        ttk.Entry(self.adj_frame, textvariable=self.var_obj_off_y, width=8).grid(row=12, column=1, padx=2)
-        ttk.Label(self.adj_frame, text="Rotacao (graus)").grid(row=13, column=0, sticky="w", pady=(5,0))
-        ttk.Entry(self.adj_frame, textvariable=self.var_obj_rot, width=8).grid(row=13, column=1, padx=2)
-        ttk.Button(self.adj_frame, text="Aplicar na Arte", command=self.apply_selected_object_adjustments).grid(row=14, column=0, columnspan=3, pady=5)
+
         
         # Painel de Transformação Rápida
         self.trans_frame = ttk.LabelFrame(self.tab_text, text="Transformação Rápida", padding="5")
@@ -439,6 +485,13 @@ class BalorStudioLite:
         self.root.bind("<F2>", lambda e: self.start_mark_mode())
         self.root.bind("<F3>", lambda e: self.start_frame_mode())
         self.root.bind("<Escape>", lambda e: self.abort_operation())
+        
+        # Bind MouseWheel to the left scrollable canvas recursively for all widgets inside left_container
+        def bind_left_mousewheel(widget):
+            widget.bind("<MouseWheel>", lambda e: left_canvas.yview_scroll(int(-1 * (e.delta / 120)), "units"), add="+")
+            for child in widget.winfo_children():
+                bind_left_mousewheel(child)
+        bind_left_mousewheel(left_container)
 
     def on_closing(self):
         """Called when the user closes the window."""
@@ -748,15 +801,39 @@ class BalorStudioLite:
                 "barcode_rot": "90", "text_rot": "90",
                 "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
                 "group_barcode": True
+            },
+            "Arte 2 (Serial Banco)": {
+                "power": "50", "speed": "500", "freq": "30",
+                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
+                "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
+                "width_mm": "29.00", "height_mm": "9.00",
+                "text_type": "Code 128 + Serial", "text_pos": "bottom",
+                "barcode_h": "5.1", "barcode_w_scale": "1.0",
+                "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
+                "barcode_rot": "180", "text_rot": "180",
+                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "group_barcode": True
+            },
+            "Arte 1 + 2 (Frontal + Traseira)": {
+                "power": "50", "speed": "500", "freq": "30",
+                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
+                "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
+                "text_type": "Code 128 + Serial", "text_pos": "top",
+                "barcode_h": "6.5", "barcode_w_scale": "1.338",
+                "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
+                "barcode_rot": "90", "text_rot": "90",
+                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "group_barcode": True,
+                "is_combined": True
             }
         }
         if os.path.exists(self.presets_file):
             try:
                 with open(self.presets_file, 'r') as f:
                     loaded = json.load(f)
-                    # Merge default preset or overwrite "Arte 1 (Serial Banco)" to match current specs
+                    # Merge default preset or overwrite "Arte 1" / "Arte 2" to match current specs
                     for k, v in default_presets.items():
-                        if k not in loaded or k == "Arte 1 (Serial Banco)":
+                        if k not in loaded or k in ("Arte 1 (Serial Banco)", "Arte 2 (Serial Banco)", "Arte 1 + 2 (Frontal + Traseira)"):
                             loaded[k] = v
                     return loaded
             except:
@@ -766,6 +843,9 @@ class BalorStudioLite:
     def load_selected_preset(self):
         name = self.preset_combo.get()
         if name in self.presets:
+            self.selected_obj.set("")
+            self.tree_objs.selection_set(())
+            self.sync_selected_object_controls()
             p = self.presets[name]
             # Standard laser parameters
             if "power" in p: self.var_power.set(p["power"])
@@ -806,7 +886,10 @@ class BalorStudioLite:
             if "text_font" in p: self.var_text_font.set(p["text_font"])
             if "text_space" in p: self.var_text_space.set(p["text_space"])
             if "barcode_type" in p: self.var_barcode_type.set(p["barcode_type"])
-            if "group_barcode" in p: self.var_group_barcode.set(p["group_barcode"])
+            if "is_combined" in p:
+                self.is_combined_mode = bool(p["is_combined"])
+            else:
+                self.is_combined_mode = False
             
             # Force UI workspace refresh
             self.update_content_mode(from_btn=True)
@@ -838,7 +921,8 @@ class BalorStudioLite:
                 "text_font": self.var_text_font.get(),
                 "text_space": self.var_text_space.get(),
                 "barcode_type": self.var_barcode_type.get(),
-                "group_barcode": self.var_group_barcode.get()
+                "group_barcode": self.var_group_barcode.get(),
+                "is_combined": getattr(self, 'is_combined_mode', False)
             }
             with open(self.presets_file, 'w') as f:
                 json.dump(self.presets, f)
@@ -915,9 +999,26 @@ class BalorStudioLite:
         """Sync selected custom SVG object transform values into UI fields and update Global Scale."""
         sel = self.selected_obj.get()
         if not sel:
+            if hasattr(self, 'lbl_selected_obj_name'):
+                self.lbl_selected_obj_name.config(text="Nenhum objeto selecionado")
+            self.var_obj_scale_x.set("1.0000")
+            self.var_obj_scale_y.set("1.0000")
+            self.var_obj_off_x.set("0.0000")
+            self.var_obj_off_y.set("0.0000")
+            self.var_obj_rot.set("0.0")
             return
             
-        # Update Dimensions in the Global Scale panel for the selected object
+        if hasattr(self, 'lbl_selected_obj_name'):
+            display_name = sel
+            if sel == "base_1": display_name = "Arte 1 (Frontal)"
+            elif sel == "base_2": display_name = "Arte 2 (Traseira)"
+            elif sel == "barcode": display_name = "Código de Barras"
+            elif sel == "text": display_name = "Texto Serial"
+            elif sel.startswith("custom_"):
+                custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
+                if custom_item:
+                    display_name = f"Arte ({os.path.basename(custom_item['file'])})"
+            self.lbl_selected_obj_name.config(text=f"Objeto: {display_name}")
         if hasattr(self, 'preview_manager') and hasattr(self.preview_manager, 'obj_dims'):
             dims = self.preview_manager.obj_dims.get(sel)
             if dims and dims[0] > 0 and dims[1] > 0:
@@ -936,8 +1037,22 @@ class BalorStudioLite:
                 self.var_height_mm.set(f"{(dims[1] * sc):.2f}")
 
         # Sync Transform Controls
+        if sel in ("base_1", "base_2"):
+            ox, oy = self.combined_offsets[sel]
+            self.var_obj_scale_x.set("1.0000")
+            self.var_obj_scale_y.set("1.0000")
+            self.var_obj_off_x.set(f"{ox:.4f}")
+            self.var_obj_off_y.set(f"{oy:.4f}")
+            self.var_obj_rot.set("0.0")
+            return
+
         custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
         if not custom_item:
+            self.var_obj_scale_x.set("1.0000")
+            self.var_obj_scale_y.set("1.0000")
+            self.var_obj_off_x.set("0.0000")
+            self.var_obj_off_y.set("0.0000")
+            self.var_obj_rot.set("0.0")
             return
         self.var_obj_scale_x.set(f"{float(custom_item.get('sx', 1.0)):.4f}")
         self.var_obj_scale_y.set(f"{float(custom_item.get('sy', 1.0)):.4f}")
@@ -948,6 +1063,15 @@ class BalorStudioLite:
     def apply_selected_object_adjustments(self):
         """Apply manual transform values to selected custom SVG object."""
         sel = self.selected_obj.get()
+        if sel in ("base_1", "base_2"):
+            try:
+                self.combined_offsets[sel][0] = float(self.var_obj_off_x.get())
+                self.combined_offsets[sel][1] = float(self.var_obj_off_y.get())
+                self.update_content_mode()
+            except ValueError:
+                messagebox.showerror("Erro", "Valores invalidos nos campos da arte selecionada.")
+            return
+
         custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
         if not custom_item:
             messagebox.showinfo("Aviso", "Selecione uma arte SVG (custom_*) para aplicar escala/offset/rotacao.")
@@ -975,6 +1099,14 @@ class BalorStudioLite:
     def _apply_selected_custom_transform_from_ui(self):
         """Silently apply object transform fields to currently selected custom item, if any."""
         sel = self.selected_obj.get()
+        if sel in ("base_1", "base_2"):
+            try:
+                self.combined_offsets[sel][0] = float(self.var_obj_off_x.get())
+                self.combined_offsets[sel][1] = float(self.var_obj_off_y.get())
+            except ValueError:
+                pass
+            return
+
         custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
         if not custom_item:
             return
@@ -1068,51 +1200,110 @@ class BalorStudioLite:
             })
         elif self.var_content_mode.get() == "code128_serial" or self.var_content_mode.get() == "svg":
             gen = barcode_module.BarcodeGenerator()
-            try:
-                bh = float(self.var_barcode_h.get())
-                bw = float(self.var_barcode_w_scale.get())
-                ts = float(self.var_text_scale.get())
-                tx = float(self.var_text_x_off.get())
-                ty = float(self.var_text_y_off.get())
-                br = float(self.var_barcode_rot.get())
-                tr = float(self.var_text_rot.get())
-                font_name = self.var_text_font.get()
-                t_space = float(self.var_text_space.get())
-                b_type = self.var_barcode_type.get()
-                bc_hex = self.pens.get(self.obj_colors.get("barcode", "Preto (#000000)"), {}).get("color_hex", "#000000")
-                tc_hex = self.pens.get(self.obj_colors.get("text", "Preto (#000000)"), {}).get("color_hex", "#000000")
-            except Exception as e:
-                print(f"[DEBUG] Error retrieving UI params: {e}")
-                bh, bw, ts, tx, ty, br, tr = 20.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0
-                font_name, t_space, b_type = "arial.ttf", 0.0, "code128"
-                bc_hex, tc_hex = "#000000", "#000000"
+            if getattr(self, 'is_combined_mode', False):
+                try:
+                    bc_1_hex = self.pens.get(self.obj_colors.get("base_1", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                    tc_1_hex = self.pens.get(self.obj_colors.get("base_1", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                    bc_2_hex = self.pens.get(self.obj_colors.get("base_2", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                    tc_2_hex = self.pens.get(self.obj_colors.get("base_2", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                except:
+                    bc_1_hex, tc_1_hex = "#000000", "#000000"
+                    bc_2_hex, tc_2_hex = "#000000", "#000000"
 
-            gen.generate_code128_svg(
-                self.var_input_text.get(), 
-                "temp_barcode.svg", 
-                barcode_height=bh, 
-                text_pos=self.var_text_pos.get(),
-                barcode_w_scale=bw,
-                text_scale=ts,
-                text_x_off=tx,
-                text_y_off=ty,
-                barcode_rot=br,
-                text_rot=tr,
-                barcode_color=bc_hex,
-                text_color=tc_hex,
-                barcode_type=b_type,
-                font_name=font_name,
-                text_space=t_space,
-                group=self.var_group_barcode.get()
-            )
-            
-            base_items.append({
-                'id': 'base', 'file': 'temp_barcode.svg',
-                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'z': 10, 'color': '',
-                'visible': True, 'preserve_ids': True
-            })
+                gen.generate_code128_svg(
+                    self.var_input_text.get(), 
+                    "temp_barcode_1.svg", 
+                    barcode_height=6.5, 
+                    text_pos="top",
+                    barcode_w_scale=1.338,
+                    text_scale=2.5,
+                    text_x_off=0.0,
+                    text_y_off=0.0,
+                    barcode_rot=90,
+                    text_rot=90,
+                    barcode_color=bc_1_hex,
+                    text_color=tc_1_hex,
+                    barcode_type="gs1_128",
+                    font_name="Barcode Font34",
+                    text_space=0.906,
+                    group=True
+                )
+                gen.generate_code128_svg(
+                    self.var_input_text.get(), 
+                    "temp_barcode_2.svg", 
+                    barcode_height=5.1, 
+                    text_pos="bottom",
+                    barcode_w_scale=1.0,
+                    text_scale=2.5,
+                    text_x_off=0.0,
+                    text_y_off=0.0,
+                    barcode_rot=180,
+                    text_rot=180,
+                    barcode_color=bc_2_hex,
+                    text_color=tc_2_hex,
+                    barcode_type="gs1_128",
+                    font_name="Barcode Font34",
+                    text_space=0.906,
+                    group=True
+                )
+                base_items.append({
+                    'id': 'base_1', 'file': 'temp_barcode_1.svg',
+                    'ox': self.combined_offsets['base_1'][0], 'oy': self.combined_offsets['base_1'][1],
+                    'sx': 1.0, 'sy': 1.0, 'rot': 0.0, 'z': 10, 'color': '',
+                    'visible': self.obj_visibility.get("base_1", True), 'preserve_ids': False
+                })
+                base_items.append({
+                    'id': 'base_2', 'file': 'temp_barcode_2.svg',
+                    'ox': self.combined_offsets['base_2'][0], 'oy': self.combined_offsets['base_2'][1],
+                    'sx': 1.0, 'sy': 1.0, 'rot': 0.0, 'z': 11, 'color': '',
+                    'visible': self.obj_visibility.get("base_2", True), 'preserve_ids': False
+                })
+            else:
+                try:
+                    bh = float(self.var_barcode_h.get())
+                    bw = float(self.var_barcode_w_scale.get())
+                    ts = float(self.var_text_scale.get())
+                    tx = float(self.var_text_x_off.get())
+                    ty = float(self.var_text_y_off.get())
+                    br = float(self.var_barcode_rot.get())
+                    tr = float(self.var_text_rot.get())
+                    font_name = self.var_text_font.get()
+                    t_space = float(self.var_text_space.get())
+                    b_type = self.var_barcode_type.get()
+                    bc_hex = self.pens.get(self.obj_colors.get("barcode", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                    tc_hex = self.pens.get(self.obj_colors.get("text", "Preto (#000000)"), {}).get("color_hex", "#000000")
+                except Exception as e:
+                    print(f"[DEBUG] Error retrieving UI params: {e}")
+                    bh, bw, ts, tx, ty, br, tr = 20.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0
+                    font_name, t_space, b_type = "arial.ttf", 0.0, "code128"
+                    bc_hex, tc_hex = "#000000", "#000000"
 
-        if self.var_content_mode.get() == "svg" or (self.var_content_mode.get() == "code128_serial" and self.custom_scene_items):
+                gen.generate_code128_svg(
+                    self.var_input_text.get(), 
+                    "temp_barcode.svg", 
+                    barcode_height=bh, 
+                    text_pos=self.var_text_pos.get(),
+                    barcode_w_scale=bw,
+                    text_scale=ts,
+                    text_x_off=tx,
+                    text_y_off=ty,
+                    barcode_rot=br,
+                    text_rot=tr,
+                    barcode_color=bc_hex,
+                    text_color=tc_hex,
+                    barcode_type=b_type,
+                    font_name=font_name,
+                    text_space=t_space,
+                    group=self.var_group_barcode.get()
+                )
+                
+                base_items.append({
+                    'id': 'base', 'file': 'temp_barcode.svg',
+                    'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'z': 10, 'color': '',
+                    'visible': self.obj_visibility.get("base", True), 'preserve_ids': True
+                })
+
+        if self.var_content_mode.get() == "svg" or (self.var_content_mode.get() == "code128_serial" and (self.custom_scene_items or getattr(self, 'is_combined_mode', False))):
             all_items = base_items + self.custom_scene_items
             for item in self.custom_scene_items:
                 c_name = self.obj_colors.get(item['id'])
@@ -1161,23 +1352,33 @@ class BalorStudioLite:
         if self.current_svg and os.path.exists(self.current_svg):
             # Always show barcode elements if we are generating them
             if self.var_text_type.get() == "Code 128 + Serial" or self.var_content_mode.get() == "code128_serial":
-                if self.var_group_barcode.get():
-                    if 'barcode' not in self.obj_visibility: self.obj_visibility['barcode'] = True
-                    v_bar = "Sim" if self.obj_visibility['barcode'] else "Não"
-                    c_bar = self.obj_colors.get('barcode', 'Preto (#000000)').split(' ')[0]
-                    self.tree_objs.insert("", "end", iid="barcode", values=("Código + Serial", v_bar, c_bar))
+                if getattr(self, 'is_combined_mode', False):
+                    if 'base_1' not in self.obj_visibility: self.obj_visibility['base_1'] = True
+                    if 'base_2' not in self.obj_visibility: self.obj_visibility['base_2'] = True
+                    v_1 = "Sim" if self.obj_visibility['base_1'] else "Não"
+                    v_2 = "Sim" if self.obj_visibility['base_2'] else "Não"
+                    c_1 = self.obj_colors.get('base_1', 'Preto (#000000)').split(' ')[0]
+                    c_2 = self.obj_colors.get('base_2', 'Preto (#000000)').split(' ')[0]
+                    self.tree_objs.insert("", "end", iid="base_1", values=("Arte 1 (Frontal)", v_1, c_1))
+                    self.tree_objs.insert("", "end", iid="base_2", values=("Arte 2 (Traseira)", v_2, c_2))
                 else:
-                    if 'barcode' not in self.obj_visibility: self.obj_visibility['barcode'] = True
-                    if 'text' not in self.obj_visibility: self.obj_visibility['text'] = True
-                    
-                    v_bar = "Sim" if self.obj_visibility['barcode'] else "Não"
-                    v_txt = "Sim" if self.obj_visibility['text'] else "Não"
-                    
-                    c_bar = self.obj_colors.get('barcode', 'Preto (#000000)').split(' ')[0]
-                    c_txt = self.obj_colors.get('text', 'Preto (#000000)').split(' ')[0]
-                    
-                    self.tree_objs.insert("", "end", iid="barcode", values=("Código de Barras", v_bar, c_bar))
-                    self.tree_objs.insert("", "end", iid="text", values=("Texto Serial", v_txt, c_txt))
+                    if self.var_group_barcode.get():
+                        if 'barcode' not in self.obj_visibility: self.obj_visibility['barcode'] = True
+                        v_bar = "Sim" if self.obj_visibility['barcode'] else "Não"
+                        c_bar = self.obj_colors.get('barcode', 'Preto (#000000)').split(' ')[0]
+                        self.tree_objs.insert("", "end", iid="barcode", values=("Código + Serial", v_bar, c_bar))
+                    else:
+                        if 'barcode' not in self.obj_visibility: self.obj_visibility['barcode'] = True
+                        if 'text' not in self.obj_visibility: self.obj_visibility['text'] = True
+                        
+                        v_bar = "Sim" if self.obj_visibility['barcode'] else "Não"
+                        v_txt = "Sim" if self.obj_visibility['text'] else "Não"
+                        
+                        c_bar = self.obj_colors.get('barcode', 'Preto (#000000)').split(' ')[0]
+                        c_txt = self.obj_colors.get('text', 'Preto (#000000)').split(' ')[0]
+                        
+                        self.tree_objs.insert("", "end", iid="barcode", values=("Código de Barras", v_bar, c_bar))
+                        self.tree_objs.insert("", "end", iid="text", values=("Texto Serial", v_txt, c_txt))
             
             # Now show custom composed items
             if is_custom_svg or self.custom_scene_items:
@@ -1196,8 +1397,10 @@ class BalorStudioLite:
         sel = self.tree_objs.selection()
         if sel:
             self.selected_obj.set(sel[0])
-            self.sync_selected_object_controls()
-            self.preview_manager.draw_selection()
+        else:
+            self.selected_obj.set("")
+        self.sync_selected_object_controls()
+        self.preview_manager.draw_selection()
 
     def on_tree_click(self, event):
         region = self.tree_objs.identify("region", event.x, event.y)

@@ -183,6 +183,7 @@ class PreviewManager:
         else:
             self.gui.selected_obj.set("")
             self.drag_data["mode"] = None
+            self.gui.sync_selected_object_controls()
             
         self.draw_selection()
 
@@ -211,6 +212,13 @@ class PreviewManager:
                 try:
                     self.gui.var_text_x_off.set(f"{float(self.gui.var_text_x_off.get()) + mm_dx:.2f}")
                     self.gui.var_text_y_off.set(f"{float(self.gui.var_text_y_off.get()) + mm_dy:.2f}")
+                except: pass
+            elif sel in ("base_1", "base_2"):
+                try:
+                    self.gui.combined_offsets[sel][0] += mm_dx
+                    self.gui.combined_offsets[sel][1] += mm_dy
+                    self.gui.var_obj_off_x.set(f"{self.gui.combined_offsets[sel][0]:.4f}")
+                    self.gui.var_obj_off_y.set(f"{self.gui.combined_offsets[sel][1]:.4f}")
                 except: pass
             else:
                 # Find custom object in scene
@@ -416,4 +424,4 @@ class PreviewManager:
                 text=dim_text, fill="red", font=("Arial", 10, "bold"), anchor="w", tags="dim_label"
             )
             
-            self.gui.lbl_filename.config(text=f"Selecionado: {'Barcode' if sel=='barcode' else 'Texto Serial' if sel=='text' else 'Arte'} ({dim_text})")
+            self.gui.lbl_filename.config(text=f"Selecionado: {'Código + Serial' if sel=='barcode' else 'Texto Serial' if sel=='text' else 'Arte 1 (Frontal)' if sel=='base_1' else 'Arte 2 (Traseira)' if sel=='base_2' else 'Arte'} ({dim_text})")

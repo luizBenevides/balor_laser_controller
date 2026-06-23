@@ -1,1 +1,18 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environment variables
 .env
+
+# Application temporary files (generated SVGs and binary job/cal files)
+temp_*
+temp_barcode.svg
+temp_barcode_1.svg
+temp_barcode_2.svg
+temp_workspace.svg
+temp_test.svg
+*.bin
+teste.bin

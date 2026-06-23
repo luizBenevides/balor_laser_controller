@@ -79,7 +79,8 @@ class BarcodeGenerator:
         x_base = cx - (total_width / 2)
         y_bars = cy - (barcode_height / 2)
         
-        is_arte1 = (str(barcode_type).lower() == "gs1_128" and ("Barcode Font34" in str(font_name)))
+        is_arte1 = (str(barcode_type).lower() == "gs1_128" and ("Barcode Font34" in str(font_name)) and abs(float(barcode_height) - 6.5) < 0.1)
+        is_arte2 = (str(barcode_type).lower() == "gs1_128" and ("Barcode Font34" in str(font_name)) and abs(float(barcode_height) - 5.1) < 0.1)
         
         # Calculate actual bounds of barcode bars to scale precisely
         min_bx = float('inf')
@@ -97,6 +98,9 @@ class BarcodeGenerator:
         if is_arte1:
             scale_x_bars = 39.62 / act_bw
             scale_y_bars = 6.5 / barcode_height
+        elif is_arte2:
+            scale_x_bars = 29.0 / act_bw
+            scale_y_bars = 5.1 / barcode_height
         else:
             scale_x_bars = 1.0
             scale_y_bars = 1.0
@@ -232,6 +236,12 @@ class BarcodeGenerator:
                 t_cy_offset = 6.5 / 2 + 3.0 + 6.0 / 2 # 9.25 mm
                 rx_center = (min_rx + max_rx) / 2 if min_rx != float('inf') else 0
                 ry_center = (min_ry + max_ry) / 2 if min_ry != float('inf') else 0
+            elif is_arte2:
+                scale_x_text = 22.0 / act_w if act_w > 0 else 1.0
+                scale_y_text = 3.6 / act_h if act_h > 0 else 1.0
+                t_cy_offset = 5.1 / 2 + 0.3 + 3.6 / 2 # 4.65 mm
+                rx_center = (min_rx + max_rx) / 2 if min_rx != float('inf') else 0
+                ry_center = (min_ry + max_ry) / 2 if min_ry != float('inf') else 0
             else:
                 scale_x_text = 1.0
                 scale_y_text = 1.0
@@ -267,7 +277,7 @@ class BarcodeGenerator:
                 svg_content += f'  <path id="{path_id}" d="{d}" fill="{text_color}" />\n'
         except Exception as e:
             print(f"[DEBUG] Error converting text to paths: {e}")
-            t_cy_offset_fallback = 6.5 / 2 + 3.0 + 6.0 / 2 if is_arte1 else barcode_height / 2 + 10
+            t_cy_offset_fallback = 6.5 / 2 + 3.0 + 6.0 / 2 if is_arte1 else (5.1 / 2 + 0.3 + 3.6 / 2 if is_arte2 else barcode_height / 2 + 10)
             text_y_raw = cy + t_cy_offset_fallback if text_pos == "bottom" else cy - t_cy_offset_fallback
             text_x, text_y = rotate_point(cx, text_y_raw, barcode_rot, cx, cy)
             text_id = "barcode" if group else "text"
