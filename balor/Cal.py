@@ -50,7 +50,7 @@ class Cal:
             # Identity transform or simple scaling if needed
             # Galvo units are typically 0-65535, center at 32768 (0x8000)
             return int(max(0, min(65535, x))), int(max(0, min(65535, y)))
-        rv =  self.interpolator([(y,x)])[0]
+        rv =  self.interpolator([(x,y)])[0]
         # Clamp to 16-bit range to avoid parameter overflow
         rv_y = int(round(rv[1]))
         rv_x = int(round(rv[0]))

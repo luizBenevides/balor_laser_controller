@@ -30,7 +30,7 @@ class SceneComposer:
                 if rot:
                     transformed = transformed.rotated(rot)
                 if ox or oy:
-                    transformed = transformed.translated(complex(ox, oy))
+                    transformed = transformed.translated(complex(ox, -oy))
                 return transformed
             except Exception:
                 return path

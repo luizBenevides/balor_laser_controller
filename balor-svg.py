@@ -95,7 +95,7 @@ def separate_points(path, seglen, xscale, yscale, xoff, yoff):
         discontinuity = ( startx != lastx or starty != lasty )
         for t in ts:
             point = segment.point(t)
-            points.append( (point.real*xscale + xoff, point.imag*yscale + yoff, discontinuity))
+            points.append( (point.real*xscale + xoff, -point.imag*yscale + yoff, discontinuity))
 
             discontinuity = False
         lastx, lasty = endx, endy
@@ -152,9 +152,13 @@ def render_fill(path, job, cal, settings, args, fill_color):
         for y0, y1 in zip(intersects[::2], intersects[1::2]):
             rx0, ry0 = rot_back(x, y0)
             rx1, ry1 = rot_back(x, y1)
-            job.goto(rx0, ry0)
+            px0 = rx0 * args.xscale + args.xoff
+            py0 = -ry0 * args.yscale + args.yoff
+            px1 = rx1 * args.xscale + args.xoff
+            py1 = -ry1 * args.yscale + args.yoff
+            job.goto(px0, py0)
             job.laser_control(True)
-            job.draw_line(rx0, ry0, rx1, ry1)
+            job.draw_line(px0, py0, px1, py1)
             job.laser_control(False)
     print ("... done.", file=sys.stderr)
            
@@ -202,7 +206,7 @@ def render_stroke_light(path, job, cal, settings, args, stroke_color):
     num_points = int(round(path.length() / args.segment_length))
     if num_points < 2: num_points = 2
     ts = np.linspace(0,1,num_points)
-    points = [(c.real*args.xscale + args.xoff,c.imag*args.yscale + args.yoff
+    points = [(c.real*args.xscale + args.xoff, -c.imag*args.yscale + args.yoff
                             ) for c in [path.point(t) for t in ts]]
     
     if not points:

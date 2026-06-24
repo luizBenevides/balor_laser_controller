@@ -15,7 +15,7 @@ and the fact that they look the same, or even have the same markings,
 is not proof that they are really the same.''')
 
 parser.add_argument('-o', '--output', 
-    help="Specify the output alignment file. (default stdout)",
+    help="Specify the output alignment file. (default stdout)", 
     default=None)
 
 

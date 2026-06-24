@@ -793,13 +793,13 @@ class BalorStudioLite:
             "Arte 1 (Serial Banco)": {
                 "power": "50", "speed": "500", "freq": "30",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
-                "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
+                "offset_x": "-15.24", "offset_y": "-31.89", "scale": "1.0",
                 "width_mm": "15.50", "height_mm": "39.62",
                 "text_type": "Code 128 + Serial", "text_pos": "top",
                 "barcode_h": "6.5", "barcode_w_scale": "1.338",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
                 "barcode_rot": "90", "text_rot": "90",
-                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "text_font": "Barcode Font34", "text_space": "0.806", "barcode_type": "gs1_128",
                 "group_barcode": True
             },
             "Arte 2 (Serial Banco)": {
@@ -1470,7 +1470,7 @@ class BalorStudioLite:
                 commands.ready()
                 commands.set_travel_speed(2000)
                 
-                if content_mode == "code128_serial":
+                if content_mode == "code128_serial" and (not hasattr(self, 'svg_bounds') or self.svg_bounds == (0, 0, 0, 0)):
                     self.svg_bounds = self._get_barcode_bounds(self.var_input_text.get(), sc)
                 
                 min_x, max_x, min_y, max_y = self.svg_bounds
@@ -1479,11 +1479,11 @@ class BalorStudioLite:
                 actual_sc = sc if content_mode == "svg" else 1.0
                 
                 pts = [
-                    (min_x * actual_sc + ox, min_y * actual_sc + oy),
-                    (max_x * actual_sc + ox, min_y * actual_sc + oy),
-                    (max_x * actual_sc + ox, max_y * actual_sc + oy),
-                    (min_x * actual_sc + ox, max_y * actual_sc + oy),
-                    (min_x * actual_sc + ox, min_y * actual_sc + oy)
+                    (min_x * actual_sc + ox, -min_y * actual_sc + oy),
+                    (max_x * actual_sc + ox, -min_y * actual_sc + oy),
+                    (max_x * actual_sc + ox, -max_y * actual_sc + oy),
+                    (min_x * actual_sc + ox, -max_y * actual_sc + oy),
+                    (min_x * actual_sc + ox, -min_y * actual_sc + oy)
                 ]
                 
                 commands.init(pts[0][0], pts[0][1])

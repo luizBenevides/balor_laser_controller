@@ -101,7 +101,7 @@ class PreviewManager:
 
         try:
             gui_ox = float(self.gui.var_offset_x.get()) * self.scale
-            gui_oy = float(self.gui.var_offset_y.get()) * self.scale
+            gui_oy = - float(self.gui.var_offset_y.get()) * self.scale
         except:
             gui_ox, gui_oy = 0, 0
 
@@ -206,17 +206,17 @@ class PreviewManager:
             if sel == "barcode":
                 try:
                     self.gui.var_offset_x.set(f"{float(self.gui.var_offset_x.get()) + mm_dx:.2f}")
-                    self.gui.var_offset_y.set(f"{float(self.gui.var_offset_y.get()) + mm_dy:.2f}")
+                    self.gui.var_offset_y.set(f"{float(self.gui.var_offset_y.get()) - mm_dy:.2f}")
                 except: pass
             elif sel == "text":
                 try:
                     self.gui.var_text_x_off.set(f"{float(self.gui.var_text_x_off.get()) + mm_dx:.2f}")
-                    self.gui.var_text_y_off.set(f"{float(self.gui.var_text_y_off.get()) + mm_dy:.2f}")
+                    self.gui.var_text_y_off.set(f"{float(self.gui.var_text_y_off.get()) - mm_dy:.2f}")
                 except: pass
             elif sel in ("base_1", "base_2"):
                 try:
                     self.gui.combined_offsets[sel][0] += mm_dx
-                    self.gui.combined_offsets[sel][1] += mm_dy
+                    self.gui.combined_offsets[sel][1] -= mm_dy
                     self.gui.var_obj_off_x.set(f"{self.gui.combined_offsets[sel][0]:.4f}")
                     self.gui.var_obj_off_y.set(f"{self.gui.combined_offsets[sel][1]:.4f}")
                 except: pass
@@ -225,7 +225,7 @@ class PreviewManager:
                 for item in self.gui.custom_scene_items:
                     if item['id'] == sel:
                         item['ox'] += mm_dx
-                        item['oy'] += mm_dy
+                        item['oy'] -= mm_dy
                         max_z = max(([float(i.get('z', 0.0)) for i in self.gui.custom_scene_items] + [100.0]))
                         item['z'] = max_z + 1.0
                         self.gui.var_obj_off_x.set(f"{item['ox']:.4f}")
