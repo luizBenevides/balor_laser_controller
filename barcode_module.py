@@ -130,17 +130,23 @@ class BarcodeGenerator:
             gx1 = cx - target_barcode_width / 2
             gx2 = gx1 + guard_width
             d = get_rotated_path(gx1, gy1, gx2, gy2, barcode_rot, cx, cy)
-            svg_content += f'  <path id="barcode_guard" d="{d}" fill="{barcode_color}" stroke="{barcode_color}" />\n'
+            svg_content += f'  <path id="barcode_guard" d="{d}" fill="{barcode_color}" stroke="none" />\n'
             gx2 = cx + target_barcode_width / 2
             gx1 = gx2 - guard_width
             d = get_rotated_path(gx1, gy1, gx2, gy2, barcode_rot, cx, cy)
-            svg_content += f'  <path id="barcode_guard" d="{d}" fill="{barcode_color}" stroke="{barcode_color}" />\n'
+            svg_content += f'  <path id="barcode_guard" d="{d}" fill="{barcode_color}" stroke="none" />\n'
 
-        x_base = cx - (total_width / 2)
-        for bit in code:
+        bar_shrink_each_side = 0.05 if is_arte1 else (0.03 if is_arte2 else 0.0)
+        run_start = None
+        for idx, bit in enumerate(code + " "):
             if bit == 'X':
-                x1_raw = x_base - bx_center
-                x2_raw = (x_base + module_width) - bx_center
+                if run_start is None:
+                    run_start = idx
+                continue
+            if run_start is not None:
+                run_end = idx
+                x1_raw = (cx - (total_width / 2) + run_start * module_width) - bx_center
+                x2_raw = (cx - (total_width / 2) + run_end * module_width) - bx_center
                 y1_raw = y_bars - cy
                 y2_raw = (y_bars + barcode_height) - cy
 
@@ -149,9 +155,15 @@ class BarcodeGenerator:
                 y1_scaled = cy + y1_raw * scale_y_bars
                 y2_scaled = cy + y2_raw * scale_y_bars
 
-                d = get_rotated_path(x1_scaled, y1_scaled, x2_scaled, y2_scaled, barcode_rot, cx, cy)
-                svg_content += f'  <path id="barcode" d="{d}" fill="{barcode_color}" stroke="{barcode_color}" />\n'
-            x_base += module_width
+                run_width = x2_scaled - x1_scaled
+                shrink = min(bar_shrink_each_side, max(0.0, run_width * 0.22))
+                x1_scaled += shrink
+                x2_scaled -= shrink
+
+                if x2_scaled > x1_scaled:
+                    d = get_rotated_path(x1_scaled, y1_scaled, x2_scaled, y2_scaled, barcode_rot, cx, cy)
+                    svg_content += f'  <path id="barcode" d="{d}" fill="{barcode_color}" stroke="none" />\n'
+                run_start = None
 
         # GENERATE TEXT AS PATHS
         try:

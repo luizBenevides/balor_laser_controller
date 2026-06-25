@@ -35,7 +35,7 @@ class BalorStudioLite:
         self.presets = self.load_presets()
 
         # UI Variables
-        self.var_power = tk.StringVar(value="30")
+        self.var_power = tk.StringVar(value="25")
         self.var_speed = tk.StringVar(value="3500")
         self.var_freq = tk.StringVar(value="60")
         self.var_offset_x = tk.StringVar(value="0.0")
@@ -93,7 +93,7 @@ class BalorStudioLite:
 
         # Pre-defined EzCAD-like pens: Black, Red, Blue
         self.pens = {
-            "Preto (#000000)": {"color_hex": "#000000", "power": "30", "speed": "3500", "freq": "60", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "10.0"},
+            "Preto (#000000)": {"color_hex": "#000000", "power": "25", "speed": "3500", "freq": "60", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "10.0"},
             "Vermelho (#FF0000)": {"color_hex": "#FF0000", "power": "80", "speed": "200", "freq": "20", "hatch_ena": True, "hatch_ang": "45", "hatch_spc": "30.0"},
             "Azul (#0000FF)": {"color_hex": "#0000FF", "power": "30", "speed": "1000", "freq": "40", "hatch_ena": False, "hatch_ang": "0", "hatch_spc": "0.0"}
         }
@@ -791,7 +791,7 @@ class BalorStudioLite:
             "Aço Inox": {"power": "60", "speed": "300", "freq": "20"}, 
             "Alumínio": {"power": "80", "speed": "500", "freq": "35"},
             "Arte 1 (Serial Banco)": {
-                "power": "30", "speed": "3500", "freq": "60",
+                "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "-15.24", "offset_y": "-31.89", "scale": "1.0",
                 "width_mm": "14.00", "height_mm": "39.62",
@@ -803,7 +803,7 @@ class BalorStudioLite:
                 "group_barcode": True
             },
             "Arte 2 (Serial Banco)": {
-                "power": "30", "speed": "3500", "freq": "60",
+                "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
                 "width_mm": "29.00", "height_mm": "9.00",
@@ -815,7 +815,7 @@ class BalorStudioLite:
                 "group_barcode": True
             },
             "Arte 1 + 2 (Frontal + Traseira)": {
-                "power": "30", "speed": "3500", "freq": "60",
+                "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
@@ -1549,9 +1549,9 @@ class BalorStudioLite:
                     "--laser-off-delay", "0",
                     "--mark-end-delay", "0",
                     "--polygon-delay", "50",
-                    "--hatch-power-scale", "0.75",
+                    "--hatch-power-scale", "0.90",
                     "--hatch-speed-scale", "2.00",
-                    "--hatch-overrun", "0.02",
+                    "--hatch-overrun", "0.00",
                     "--hatch-serpentine",
                 ]
                 
