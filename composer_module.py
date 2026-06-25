@@ -78,14 +78,16 @@ class SceneComposer:
                 d = tp.d()
                 path_id = a.get('id', item['id']) if preserve_ids else item['id']
                 
-                # If color is forced at group level, we don't need path fill, but to be safe:
-                path_fill = ""
-                if not item.get("color") and "fill" in a:
-                    path_fill = f'fill="{a["fill"]}"'
+                path_attrs = []
+                if not item.get("color"):
+                    for attr_name in ("fill", "stroke", "fill-rule", "stroke-linecap", "stroke-linejoin"):
+                        if attr_name in a and a[attr_name] not in (None, ""):
+                            path_attrs.append(f'{attr_name}="{a[attr_name]}"')
                 if len(tp) > 0:
                     bb = tp.bbox()
                     print(f"[DEBUG][composer] item={item['id']} path={path_id} bbox={bb} z={item.get('z', 0)}")
-                svg_content += f'    <path id="{path_id}" d="{d}" {path_fill} />\n'
+                attrs_text = " ".join(path_attrs)
+                svg_content += f'    <path id="{path_id}" d="{d}" {attrs_text} />\n'
                 
             svg_content += f'  </g>\n'
             

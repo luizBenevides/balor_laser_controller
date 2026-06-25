@@ -52,6 +52,30 @@ parser.add_argument('--laser-power',
 parser.add_argument('--q-switch-frequency',
     help="Specify the default q switch frequency in KHz",
     default=30.0, type=float)
+parser.add_argument('--laser-on-delay',
+    help="EzCAD Start TC / laser on delay in microseconds",
+    default=250, type=float)
+parser.add_argument('--laser-off-delay',
+    help="EzCAD Laser Off TC in microseconds",
+    default=100, type=float)
+parser.add_argument('--mark-end-delay',
+    help="EzCAD End TC in microseconds",
+    default=0, type=float)
+parser.add_argument('--polygon-delay',
+    help="EzCAD Polygon TC in microseconds",
+    default=50, type=float)
+parser.add_argument('--hatch-power-scale',
+    help="Power multiplier used only for fill/hatch passes; stroke keeps pen power",
+    default=1.0, type=float)
+parser.add_argument('--hatch-speed-scale',
+    help="Speed multiplier used only for fill/hatch passes; stroke keeps pen speed",
+    default=1.0, type=float)
+parser.add_argument('--hatch-overrun',
+    help="Extra millimeters added before/after each hatch segment to stabilize marking inside the vector",
+    default=0.0, type=float)
+parser.add_argument('--hatch-serpentine',
+    help="Keep the laser on while drawing adjacent hatch lines inside the same filled region",
+    action='store_true')
 parser.add_argument('--repetition', '-r',
     help="Specify the default number of passes. The file will be repeated from the first G00 movement.",
     default=10, type=int)
@@ -107,9 +131,12 @@ from svgpathtools import Line
 def render_fill(path, job, cal, settings, args, fill_color):
     print ("$FILL", path.bbox(), path.iscontinuous() and path.isclosed(), file=sys.stderr)
     brush = settings.get(fill_color)
+    hatch_power = max(0.0, min(100.0, brush[1] * args.hatch_power_scale))
+    hatch_speed = max(1.0, brush[2] * args.hatch_speed_scale)
     job.set_frequency(brush[0])
-    job.set_power(brush[1])
-    job.set_cut_speed(brush[2])
+    job.set_power(hatch_power)
+    job.set_cut_speed(hatch_speed)
+    print ("$HATCH_SETTINGS", f"freq={brush[0]}", f"power={hatch_power:.1f}", f"speed={hatch_speed:.1f}", file=sys.stderr)
     
     angle = brush[3]
     spacing = float(brush[4]) / 1000.0
@@ -119,11 +146,14 @@ def render_fill(path, job, cal, settings, args, fill_color):
     rot_path = path.rotated(-angle, origin=0j)
     xmin, xmax, ymin, ymax = rot_path.bbox()
     
-    hatch_x = np.linspace(xmin-0.1, xmax+0.1, int(round((0.2+xmax-xmin)/spacing)))
+    hatch_span = 0.2 + xmax - xmin
+    hatch_count = max(1, int(np.ceil(hatch_span / spacing)))
+    hatch_x = (xmin - 0.1) + (np.arange(hatch_count) + 0.5) * spacing
     sys.stderr.write(("|"*(len(hatch_x)//50)) + "\n")
     sys.stderr.flush()
     
     import cmath
+    hatch_columns = []
     
     for n, x in enumerate(hatch_x):
         if not n % 50: 
@@ -143,23 +173,78 @@ def render_fill(path, job, cal, settings, args, fill_color):
             intersects.append(p0.imag) # Just need the Y coordinate
         
         intersects.sort()
+        deduped = []
+        for y in intersects:
+            if not deduped or abs(y - deduped[-1]) > 1e-6:
+                deduped.append(y)
+        intersects = deduped
 
         def rot_back(px, py):
             rad = np.radians(angle)
             c = complex(px, py) * cmath.rect(1, rad)
             return c.real, c.imag
 
+        column_segments = []
         for y0, y1 in zip(intersects[::2], intersects[1::2]):
             rx0, ry0 = rot_back(x, y0)
             rx1, ry1 = rot_back(x, y1)
+            overrun = max(0.0, args.hatch_overrun)
+            if overrun:
+                dx = rx1 - rx0
+                dy = ry1 - ry0
+                length = (dx * dx + dy * dy) ** 0.5
+                if length > 0:
+                    ux = dx / length
+                    uy = dy / length
+                    rx0 -= ux * overrun
+                    ry0 -= uy * overrun
+                    rx1 += ux * overrun
+                    ry1 += uy * overrun
             px0 = rx0 * args.xscale + args.xoff
             py0 = -ry0 * args.yscale + args.yoff
             px1 = rx1 * args.xscale + args.xoff
             py1 = -ry1 * args.yscale + args.yoff
-            job.goto(px0, py0)
+            column_segments.append(((px0, py0), (px1, py1)))
+        hatch_columns.append(column_segments)
+
+    if args.hatch_serpentine:
+        active_runs = {}
+
+        def flush_run(run):
+            if not run:
+                return
+            start, end = run[0]
+            job.goto(*start)
             job.laser_control(True)
-            job.draw_line(px0, py0, px1, py1)
+            job.draw_line(start[0], start[1], end[0], end[1])
+            previous = end
+            for seg_start, seg_end in run[1:]:
+                d_start = (previous[0] - seg_start[0]) ** 2 + (previous[1] - seg_start[1]) ** 2
+                d_end = (previous[0] - seg_end[0]) ** 2 + (previous[1] - seg_end[1]) ** 2
+                if d_end < d_start:
+                    seg_start, seg_end = seg_end, seg_start
+                job.draw_line(previous[0], previous[1], seg_start[0], seg_start[1])
+                job.draw_line(seg_start[0], seg_start[1], seg_end[0], seg_end[1])
+                previous = seg_end
             job.laser_control(False)
+
+        for column_segments in hatch_columns:
+            live_keys = set()
+            for span_index, segment in enumerate(column_segments):
+                live_keys.add(span_index)
+                active_runs.setdefault(span_index, []).append(segment)
+            for span_index in list(active_runs.keys()):
+                if span_index not in live_keys:
+                    flush_run(active_runs.pop(span_index))
+        for run in active_runs.values():
+            flush_run(run)
+    else:
+        for column_segments in hatch_columns:
+            for (px0, py0), (px1, py1) in column_segments:
+                job.goto(px0, py0)
+                job.laser_control(True)
+                job.draw_line(px0, py0, px1, py1)
+                job.laser_control(False)
     print ("... done.", file=sys.stderr)
            
 
@@ -229,6 +314,10 @@ def render_svg(svg, job, cal, args, settings):
         job.set_cut_speed(args.cut_speed)
         job.set_power(args.laser_power)
         job.set_frequency(args.q_switch_frequency)
+        job.set_laser_on_delay(args.laser_on_delay)
+        job.set_laser_off_delay(args.laser_off_delay)
+        job.set_polygon_delay(args.polygon_delay)
+        job.set_laser_control_delays(args.mark_end_delay, args.mark_end_delay)
     
     job.raw_travel(0x8000, 0x8000)
     begin = job.position

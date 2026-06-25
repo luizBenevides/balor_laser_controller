@@ -35,9 +35,9 @@ class BalorStudioLite:
         self.presets = self.load_presets()
 
         # UI Variables
-        self.var_power = tk.StringVar(value="50")
-        self.var_speed = tk.StringVar(value="500")
-        self.var_freq = tk.StringVar(value="30")
+        self.var_power = tk.StringVar(value="30")
+        self.var_speed = tk.StringVar(value="3500")
+        self.var_freq = tk.StringVar(value="60")
         self.var_offset_x = tk.StringVar(value="0.0")
         self.var_offset_y = tk.StringVar(value="0.0")
         self.var_scale = tk.StringVar(value="1.0")
@@ -49,7 +49,7 @@ class BalorStudioLite:
         # Hatch Variables
         self.var_hatch_enable = tk.BooleanVar(value=True)
         self.var_hatch_angle = tk.StringVar(value="90")
-        self.var_hatch_spacing = tk.StringVar(value="40.0") # microns
+        self.var_hatch_spacing = tk.StringVar(value="10.0") # microns
 
         # Text/Barcode Variables
         self.var_content_mode = tk.StringVar(value="code128_serial") 
@@ -93,7 +93,7 @@ class BalorStudioLite:
 
         # Pre-defined EzCAD-like pens: Black, Red, Blue
         self.pens = {
-            "Preto (#000000)": {"color_hex": "#000000", "power": "50", "speed": "500", "freq": "30", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "40.0"},
+            "Preto (#000000)": {"color_hex": "#000000", "power": "30", "speed": "3500", "freq": "60", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "10.0"},
             "Vermelho (#FF0000)": {"color_hex": "#FF0000", "power": "80", "speed": "200", "freq": "20", "hatch_ena": True, "hatch_ang": "45", "hatch_spc": "30.0"},
             "Azul (#0000FF)": {"color_hex": "#0000FF", "power": "30", "speed": "1000", "freq": "40", "hatch_ena": False, "hatch_ang": "0", "hatch_spc": "0.0"}
         }
@@ -791,38 +791,38 @@ class BalorStudioLite:
             "Aço Inox": {"power": "60", "speed": "300", "freq": "20"}, 
             "Alumínio": {"power": "80", "speed": "500", "freq": "35"},
             "Arte 1 (Serial Banco)": {
-                "power": "50", "speed": "500", "freq": "30",
-                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
+                "power": "30", "speed": "3500", "freq": "60",
+                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "-15.24", "offset_y": "-31.89", "scale": "1.0",
-                "width_mm": "15.50", "height_mm": "39.62",
-                "text_type": "Code 128 + Serial", "text_pos": "top",
-                "barcode_h": "6.5", "barcode_w_scale": "1.338",
+                "width_mm": "14.00", "height_mm": "39.62",
+                "text_type": "Code 128 + Serial", "text_pos": "bottom",
+                "barcode_h": "6.0", "barcode_w_scale": "1.338",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
-                "barcode_rot": "90", "text_rot": "90",
-                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "barcode_rot": "90", "text_rot": "270",
+                "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "group_barcode": True
             },
             "Arte 2 (Serial Banco)": {
-                "power": "50", "speed": "500", "freq": "30",
-                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
+                "power": "30", "speed": "3500", "freq": "60",
+                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
                 "width_mm": "29.00", "height_mm": "9.00",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "5.1", "barcode_w_scale": "1.0",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
                 "barcode_rot": "180", "text_rot": "180",
-                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "group_barcode": True
             },
             "Arte 1 + 2 (Frontal + Traseira)": {
-                "power": "50", "speed": "500", "freq": "30",
-                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "40.0",
+                "power": "30", "speed": "3500", "freq": "60",
+                "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
                 "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
-                "text_type": "Code 128 + Serial", "text_pos": "top",
-                "barcode_h": "6.5", "barcode_w_scale": "1.338",
+                "text_type": "Code 128 + Serial", "text_pos": "bottom",
+                "barcode_h": "6.0", "barcode_w_scale": "1.338",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
-                "barcode_rot": "90", "text_rot": "90",
-                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
+                "barcode_rot": "90", "text_rot": "270",
+                "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "group_barcode": True,
                 "is_combined": True
             }
@@ -1232,19 +1232,19 @@ class BalorStudioLite:
                 gen.generate_code128_svg(
                     self.var_input_text.get(), 
                     "temp_barcode_1.svg", 
-                    barcode_height=6.5, 
-                    text_pos="top",
+                    barcode_height=6.0, 
+                    text_pos="bottom",
                     barcode_w_scale=1.338,
                     text_scale=2.5,
                     text_x_off=0.0,
                     text_y_off=0.0,
                     barcode_rot=90,
-                    text_rot=90,
+                    text_rot=270,
                     barcode_color=bc_1_hex,
                     text_color=tc_1_hex,
                     barcode_type="gs1_128",
-                    font_name="Barcode Font34",
-                    text_space=0.906,
+                    font_name="arial.ttf",
+                    text_space=0.0,
                     group=True
                 )
                 gen.generate_code128_svg(
@@ -1261,8 +1261,8 @@ class BalorStudioLite:
                     barcode_color=bc_2_hex,
                     text_color=tc_2_hex,
                     barcode_type="gs1_128",
-                    font_name="Barcode Font34",
-                    text_space=0.906,
+                    font_name="arial.ttf",
+                    text_space=0.0,
                     group=True
                 )
                 base_items.append({
@@ -1542,6 +1542,18 @@ class BalorStudioLite:
                 hidden_arg = ["--hidden-tags", ",".join(hidden_tags)] if hidden_tags else []
                 
                 extra_args = ["--repetition", "1", "--travel-speed", "800"] if mode == "light" else []
+                ezcad_delay_args = [
+                    # Generated SVG hatch uses many short lines; EzCAD native TC values
+                    # would eat the beginning/end of each line at 3500 mm/s.
+                    "--laser-on-delay", "0",
+                    "--laser-off-delay", "0",
+                    "--mark-end-delay", "0",
+                    "--polygon-delay", "50",
+                    "--hatch-power-scale", "0.75",
+                    "--hatch-speed-scale", "2.00",
+                    "--hatch-overrun", "0.02",
+                    "--hatch-serpentine",
+                ]
                 
                 if content_mode == "svg":
                     cmd = [
@@ -1552,7 +1564,7 @@ class BalorStudioLite:
                         "--yoff", str(oy),
                         "--xscale", str(sc),
                         "--yscale", str(sc)
-                    ] + cal_arg + settings_arg + hidden_arg + extra_args
+                    ] + cal_arg + settings_arg + hidden_arg + ezcad_delay_args + extra_args
                 elif content_mode == "text":
                     cmd = [
                         sys.executable, "balor-text.py", mode,
@@ -1591,7 +1603,7 @@ class BalorStudioLite:
                         "--yoff", str(oy),
                         "--xscale", str(sc),
                         "--yscale", str(sc)
-                    ] + cal_arg + settings_arg + hidden_arg + extra_args
+                    ] + cal_arg + settings_arg + hidden_arg + ezcad_delay_args + extra_args
                 
                 subprocess.run(cmd, check=True)
                 
@@ -1824,3 +1836,4 @@ if __name__ == "__main__":
         pass
     app = BalorStudioLite(root)
     root.mainloop()
+
