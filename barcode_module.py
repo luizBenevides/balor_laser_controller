@@ -16,6 +16,10 @@ class BarcodeGenerator:
         Generates a barcode as an SVG file with vector paths for both bars AND text,
         supporting individual scaling, offsets, rotation, colors, fonts, types and text spacing.
         """
+        # Negate angles to account for Y-down coordinate system in SVG
+        barcode_rot = -barcode_rot
+        text_rot = -text_rot
+
         # Select Barcode Class
         barcode_type_str = str(barcode_type).lower()
         if "gs1" in barcode_type_str or "ean" in barcode_type_str:
@@ -258,6 +262,14 @@ class BarcodeGenerator:
             # Rotate text center point around the barcode center by barcode_rot
             t_cx, t_cy = rotate_point(t_cx_raw, t_cy_raw, barcode_rot, cx, cy)
             
+            def line_path_from_rect(x1, y1, x2, y2):
+                yc = (y1 + y2) / 2.0
+                p1 = rotate_point(x1, yc, text_rot, t_cx_raw, t_cy_raw)
+                p2 = rotate_point(x2, yc, text_rot, t_cx_raw, t_cy_raw)
+                dx = t_cx - t_cx_raw
+                dy = t_cy - t_cy_raw
+                return f"M {p1[0] + dx} {p1[1] + dy} L {p2[0] + dx} {p2[1] + dy}"
+
             # Pass 2: Output rotated/scaled/translated paths
             for rx1, ry1, rx2, ry2 in raw_rects:
                 # Scale relative to actual bounding box center to avoid offset distortion
@@ -272,9 +284,8 @@ class BarcodeGenerator:
                 y1_unrot = t_cy_raw + y1_scaled
                 y2_unrot = t_cy_raw + y2_scaled
                 
-                d = get_rotated_and_translated_path(x1_unrot, y1_unrot, x2_unrot, y2_unrot, text_rot, t_cx_raw, t_cy_raw, t_cx, t_cy)
-                path_id = "barcode" if group else "text"
-                svg_content += f'  <path id="{path_id}" d="{d}" fill="{text_color}" />\n'
+                d = line_path_from_rect(x1_unrot, y1_unrot, x2_unrot, y2_unrot)
+                svg_content += f'  <path id="text" d="{d}" stroke="{text_color}" fill="none" />\n'
         except Exception as e:
             print(f"[DEBUG] Error converting text to paths: {e}")
             t_cy_offset_fallback = 6.5 / 2 + 3.0 + 6.0 / 2 if is_arte1 else (5.1 / 2 + 0.3 + 3.6 / 2 if is_arte2 else barcode_height / 2 + 10)

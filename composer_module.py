@@ -28,7 +28,7 @@ class SceneComposer:
                 if sx != 1 or sy != 1:
                     transformed = transformed.scaled(sx, sy)
                 if rot:
-                    transformed = transformed.rotated(rot)
+                    transformed = transformed.rotated(rot, origin=0j)
                 if ox or oy:
                     transformed = transformed.translated(complex(ox, -oy))
                 return transformed

@@ -35,7 +35,7 @@ class BalorStudioLite:
         self.presets = self.load_presets()
 
         # UI Variables
-        self.var_power = tk.StringVar(value="40")
+        self.var_power = tk.StringVar(value="50")
         self.var_speed = tk.StringVar(value="500")
         self.var_freq = tk.StringVar(value="30")
         self.var_offset_x = tk.StringVar(value="0.0")
@@ -93,7 +93,7 @@ class BalorStudioLite:
 
         # Pre-defined EzCAD-like pens: Black, Red, Blue
         self.pens = {
-            "Preto (#000000)": {"color_hex": "#000000", "power": "40", "speed": "500", "freq": "30", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "40.0"},
+            "Preto (#000000)": {"color_hex": "#000000", "power": "50", "speed": "500", "freq": "30", "hatch_ena": True, "hatch_ang": "90", "hatch_spc": "40.0"},
             "Vermelho (#FF0000)": {"color_hex": "#FF0000", "power": "80", "speed": "200", "freq": "20", "hatch_ena": True, "hatch_ang": "45", "hatch_spc": "30.0"},
             "Azul (#0000FF)": {"color_hex": "#0000FF", "power": "30", "speed": "1000", "freq": "40", "hatch_ena": False, "hatch_ang": "0", "hatch_spc": "0.0"}
         }
@@ -799,7 +799,7 @@ class BalorStudioLite:
                 "barcode_h": "6.5", "barcode_w_scale": "1.338",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
                 "barcode_rot": "90", "text_rot": "90",
-                "text_font": "Barcode Font34", "text_space": "0.806", "barcode_type": "gs1_128",
+                "text_font": "Barcode Font34", "text_space": "0.906", "barcode_type": "gs1_128",
                 "group_barcode": True
             },
             "Arte 2 (Serial Banco)": {
@@ -886,6 +886,9 @@ class BalorStudioLite:
             if "text_font" in p: self.var_text_font.set(p["text_font"])
             if "text_space" in p: self.var_text_space.set(p["text_space"])
             if "barcode_type" in p: self.var_barcode_type.set(p["barcode_type"])
+            if "Serial Banco" in name:
+                self.current_pen_name.set("Preto (#000000)")
+                self._sync_serial_black_pen_settings()
             if "is_combined" in p:
                 self.is_combined_mode = bool(p["is_combined"])
             else:
@@ -1142,7 +1145,7 @@ class BalorStudioLite:
             self.var_hatch_angle.set(p["hatch_ang"])
             self.var_hatch_spacing.set(p["hatch_spc"])
 
-    def save_pen_settings(self):
+    def _sync_current_pen_settings(self):
         name = self.current_pen_name.get()
         if name in self.pens:
             self.pens[name]["power"] = self.var_power.get()
@@ -1151,7 +1154,23 @@ class BalorStudioLite:
             self.pens[name]["hatch_ena"] = self.var_hatch_enable.get()
             self.pens[name]["hatch_ang"] = self.var_hatch_angle.get()
             self.pens[name]["hatch_spc"] = self.var_hatch_spacing.get()
-            messagebox.showinfo("Sucesso", f"Parâmetros salvos para a caneta {name}.")
+
+
+    def _sync_serial_black_pen_settings(self):
+        name = "Preto (#000000)"
+        if name in self.pens:
+            self.pens[name]["power"] = self.var_power.get()
+            self.pens[name]["speed"] = self.var_speed.get()
+            self.pens[name]["freq"] = self.var_freq.get()
+            self.pens[name]["hatch_ena"] = self.var_hatch_enable.get()
+            self.pens[name]["hatch_ang"] = self.var_hatch_angle.get()
+            self.pens[name]["hatch_spc"] = self.var_hatch_spacing.get()
+
+    def save_pen_settings(self):
+        name = self.current_pen_name.get()
+        if name in self.pens:
+            self._sync_current_pen_settings()
+            messagebox.showinfo("Sucesso", f"Parametros salvos para a caneta {name}.")
 
     def show_color_menu(self, event):
         item = self.tree_objs.identify_row(event.y)
@@ -1468,15 +1487,15 @@ class BalorStudioLite:
                 cal = balor.Cal.Cal(cal_file if cal_file and os.path.exists(cal_file) else None)
                 commands = balor.command_list.CommandList(cal=cal)
                 commands.ready()
-                commands.set_travel_speed(2000)
+                commands.set_travel_speed(800)
                 
                 if content_mode == "code128_serial" and (not hasattr(self, 'svg_bounds') or self.svg_bounds == (0, 0, 0, 0)):
                     self.svg_bounds = self._get_barcode_bounds(self.var_input_text.get(), sc)
                 
                 min_x, max_x, min_y, max_y = self.svg_bounds
                 
-                # If we are not in SVG mode, sc is already applied to bounds or not needed
-                actual_sc = sc if content_mode == "svg" else 1.0
+                # Apply scale globally to the preview frame bounds
+                actual_sc = sc
                 
                 pts = [
                     (min_x * actual_sc + ox, -min_y * actual_sc + oy),
@@ -1503,6 +1522,9 @@ class BalorStudioLite:
                 import sys
                 
                 # Generate dynamic pen settings for balor-svg.py
+                self._sync_current_pen_settings()
+                if content_mode == "code128_serial":
+                    self._sync_serial_black_pen_settings()
                 settings_csv = "temp_settings.csv"
                 with open(settings_csv, "w") as f:
                     for name, p_data in self.pens.items():
@@ -1519,6 +1541,8 @@ class BalorStudioLite:
                     if not v: hidden_tags.append(k)
                 hidden_arg = ["--hidden-tags", ",".join(hidden_tags)] if hidden_tags else []
                 
+                extra_args = ["--repetition", "1", "--travel-speed", "800"] if mode == "light" else []
+                
                 if content_mode == "svg":
                     cmd = [
                         sys.executable, "balor-svg.py", mode,
@@ -1528,7 +1552,7 @@ class BalorStudioLite:
                         "--yoff", str(oy),
                         "--xscale", str(sc),
                         "--yscale", str(sc)
-                    ] + cal_arg + settings_arg + hidden_arg
+                    ] + cal_arg + settings_arg + hidden_arg + extra_args
                 elif content_mode == "text":
                     cmd = [
                         sys.executable, "balor-text.py", mode,
@@ -1567,7 +1591,7 @@ class BalorStudioLite:
                         "--yoff", str(oy),
                         "--xscale", str(sc),
                         "--yscale", str(sc)
-                    ] + cal_arg + settings_arg + hidden_arg
+                    ] + cal_arg + settings_arg + hidden_arg + extra_args
                 
                 subprocess.run(cmd, check=True)
                 

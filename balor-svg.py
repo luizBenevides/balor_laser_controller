@@ -116,7 +116,7 @@ def render_fill(path, job, cal, settings, args, fill_color):
     if spacing <= 0: return
 
     # Rotate path by -angle to do vertical hatching, then rotate back
-    rot_path = path.rotated(-angle)
+    rot_path = path.rotated(-angle, origin=0j)
     xmin, xmax, ymin, ymax = rot_path.bbox()
     
     hatch_x = np.linspace(xmin-0.1, xmax+0.1, int(round((0.2+xmax-xmin)/spacing)))
@@ -289,8 +289,14 @@ def render_svg(svg, job, cal, args, settings):
 
             
         if fill_color != None and args.operation == 'mark':
-            print ("rendering hatching of", attribute.get('id', 'no id'), file=sys.stderr)
-            render_fill(path, job, cal, settings, args, fill_color)
+            brush = settings.get(fill_color)
+            spacing = float(brush[4]) / 1000.0
+            if spacing > 0:
+                print ("rendering hatching of", attribute.get('id', 'no id'), file=sys.stderr)
+                render_fill(path, job, cal, settings, args, fill_color)
+            else:
+                print ("rendering outline stroke (fallback from fill) of", attribute.get('id', 'no id'), file=sys.stderr)
+                render_stroke(path, job, cal, settings, args, fill_color)
         
         if stroke_color != None:
             if args.operation == 'mark':
