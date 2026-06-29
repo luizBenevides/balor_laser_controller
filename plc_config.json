@@ -5,46 +5,46 @@
     "port_robo": "502",
     "actions": [
         {
-            "name": "Grava\u00e7\u00e3o Frontal",
-            "mem": "100",
-            "tgt": "Rob\u00f4"
-        },
-        {
-            "name": "Grava\u00e7\u00e3o Traseira",
-            "mem": "101",
-            "tgt": "Rob\u00f4"
-        },
-        {
-            "name": "TESTE CLP (M70)",
+            "name": "ACIONAR SENSOR - MANUAL",
             "mem": "80",
             "tgt": "CLP"
         },
         {
-            "name": "INSPE\u00c7AO OK",
-            "mem": "102",
-            "tgt": "Rob\u00f4"
+            "name": "GIRAR 1 VEZ",
+            "mem": "71",
+            "tgt": "CLP"
         },
         {
-            "name": "INSPE\u00c7\u00c3O NG",
-            "mem": "103",
-            "tgt": "Rob\u00f4"
+            "name": "VOLTAR GIRO",
+            "mem": "72",
+            "tgt": "CLP"
+        },
+        {
+            "name": "NG",
+            "mem": "73",
+            "tgt": "CLP"
+        },
+        {
+            "name": "OK",
+            "mem": "74",
+            "tgt": "CLP"
         }
     ],
     "statuses": [
         {
-            "name": "CLP M70",
+            "name": "SENSOR ESTEIRA",
             "mem": "70",
             "tgt": "CLP"
         },
         {
-            "name": "status 1",
-            "mem": "10100",
-            "tgt": "Rob\u00f4"
+            "name": "DO0 ROBO - ROTINA",
+            "mem": "90",
+            "tgt": "CLP"
         },
         {
-            "name": "status 2",
-            "mem": "10101",
-            "tgt": "Rob\u00f4"
+            "name": "GIRAR PE\u00c7A",
+            "mem": "91",
+            "tgt": "CLP"
         }
     ]
 }

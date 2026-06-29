@@ -7,35 +7,51 @@ import time
 from pyModbusTCP.client import ModbusClient
 
 CONFIG_FILE = "plc_config.json"
+DEFAULT_MODBUS_SLAVE_ID = 1
 
 class ModbusDevice:
     """
     Classe base para comunicação com qualquer dispositivo Modbus TCP.
     """
-    def __init__(self, name, ip, port=502):
+    def __init__(self, name, ip, port=502, unit_id=DEFAULT_MODBUS_SLAVE_ID):
         self.name = name
         self.ip = ip
         self.port = port
+        self.unit_id = int(unit_id)
         self.client = None
         self.is_connected = False
 
     def connect(self):
-        try:
-            print(f"[MODBUS - {self.name}] Tentando abrir conexão com {self.ip}:{self.port}...")
-            # Forçamos Unit ID 1 que foi o que respondeu no diagnóstico
-            self.client = ModbusClient(host=self.ip, port=self.port, unit_id=1, auto_open=True, timeout=2.0)
-            if self.client.open():
-                self.is_connected = True
-                print(f"[MODBUS - {self.name}] Sucesso! Conectado a: {self.ip}")
-                return True, f"Conectado ({self.ip})"
-            else:
-                self.is_connected = False
-                return False, f"Conexão recusada ({self.ip}:{self.port})"
-        except Exception as e:
-            self.is_connected = False
-            self.client = None
-            print(f"[MODBUS - {self.name}] Erro ao conectar: {e}")
-            return False, str(e)
+        self.disconnect()
+        port = int(self.port)
+
+        last_error = None
+        for port in [port]:
+            client = None
+            try:
+                print(f"[MODBUS - {self.name}] Tentando abrir conexao com {self.ip}:{port} slave_id={self.unit_id}...")
+                client = ModbusClient(host=self.ip, port=port, unit_id=self.unit_id, auto_open=False, timeout=1.0)
+                if client.open():
+                    self.client = client
+                    self.port = port
+                    self.is_connected = True
+                    print(f"[MODBUS - {self.name}] Sucesso! Conectado a: {self.ip}:{port}")
+                    return True, f"Conectado ({self.ip}:{port}, slave {self.unit_id})"
+                last_error = f"Conexao recusada ({self.ip}:{port})"
+            except Exception as e:
+                last_error = str(e)
+                print(f"[MODBUS - {self.name}] Erro ao conectar em {self.ip}:{port}: {e}")
+            finally:
+                if client is not None and not self.is_connected:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
+            time.sleep(0.2)
+
+        self.is_connected = False
+        self.client = None
+        return False, last_error or f"Conexao recusada ({self.ip}:{self.port})"
 
     def disconnect(self):
         if self.client:
@@ -47,6 +63,22 @@ class ModbusDevice:
             finally:
                 self.client = None
         self.is_connected = False
+
+    def _modbus_status(self):
+        if not self.client:
+            return ""
+        parts = []
+        for attr_name in ("last_error_as_txt", "last_except_as_txt", "last_error", "last_except"):
+            try:
+                attr = getattr(self.client, attr_name, None)
+                if attr is None:
+                    continue
+                value = attr() if callable(attr) else attr
+                if value:
+                    parts.append(f"{attr_name}={value}")
+            except Exception:
+                pass
+        return " | ".join(parts)
 
     def send_write(self, memory_address, value=True):
         if not self.is_connected or not self.client: 
@@ -63,8 +95,8 @@ class ModbusDevice:
                 print(f"[MODBUS WRITE - {self.name}] Tentando Coil no endereço {addr}...")
                 success = self.client.write_single_coil(addr, value)
                 
-                # Se falhar e for Robô, tenta como Holding Register (Fallback comum na porta 8000)
-                if not success and self.name == "Robô":
+                # Se falhar e for Robo, tenta como Holding Register no mesmo servidor Modbus
+                if not success and self.name.startswith("Rob"):
                     print(f"[MODBUS WRITE - {self.name}] Coil falhou. Tentando como Register no {addr}...")
                     success = self.client.write_single_register(addr, val_int)
 
@@ -72,8 +104,9 @@ class ModbusDevice:
                 print(f"[MODBUS WRITE - {self.name}] Sucesso no endereço {addr}!")
                 return True, "Escrita OK"
             else:
-                print(f"[MODBUS WRITE ERROR - {self.name}] Ambas tentativas (Coil/Register) falharam no endereço {addr}")
-                return False, "Falha na escrita"
+                detail = self._modbus_status()
+                print(f"[MODBUS WRITE ERROR - {self.name}] Ambas tentativas (Coil/Register) falharam no endereco {addr}. {detail}")
+                return False, f"Falha na escrita ({detail})" if detail else "Falha na escrita"
         except Exception as e:
             return False, str(e)
 
@@ -97,7 +130,7 @@ class ModbusDevice:
                 result = self.client.read_coils(addr, 1)
                 
                 # Fallback para Robô: Se Coil falhar, tenta Holding Register (4xxxx) ou Input Register (3xxxx)
-                if result is None and self.name == "Robô":
+                if result is None and self.name.startswith("Rob"):
                     print(f"[MODBUS READ - {self.name}] Coil {addr} falhou. Tentando Holding Register...")
                     result = self.client.read_holding_registers(addr, 1)
                     if result is None:
@@ -107,7 +140,8 @@ class ModbusDevice:
             if result is not None:
                 return True, str(result[0])
             else:
-                return False, "Falha na leitura"
+                detail = self._modbus_status()
+                return False, f"Falha na leitura ({detail})" if detail else "Falha na leitura"
         except Exception as e:
             return False, str(e)
 
@@ -117,6 +151,7 @@ class PLCPanelApp:
         self.root = root
         self.root.title("Painel de Controle Mestre - CLP e Robô (Modbus TCP)")
         self.root.geometry("1000x800")
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
 
         # 1. Carrega dados do JSON ANTES de tudo
         self.config_data = self.load_config_data()
@@ -130,7 +165,7 @@ class PLCPanelApp:
         self.var_port_clp = tk.StringVar(value=self.config_data.get("port_clp", "502"))
 
         self.var_ip_robo = tk.StringVar(value=self.config_data.get("ip_robo", "192.168.1.8"))
-        self.var_port_robo = tk.StringVar(value=self.config_data.get("port_robo", "8000"))
+        self.var_port_robo = tk.StringVar(value=self.config_data.get("port_robo", "502"))
 
         
         # 3. Estruturas Dinâmicas
@@ -142,6 +177,14 @@ class PLCPanelApp:
         # 4. Constrói UI e Restaura Itens
         self.build_ui()
         self.restore_dynamic_items()
+
+    def on_close(self):
+        self.polling_active = False
+        if self.dev_clp:
+            self.dev_clp.disconnect()
+        if self.dev_robo:
+            self.dev_robo.disconnect()
+        self.root.destroy()
 
     def load_config_data(self):
         if os.path.exists(CONFIG_FILE):
