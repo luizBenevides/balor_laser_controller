@@ -5,6 +5,7 @@ import os
 import threading
 import time
 from pyModbusTCP.client import ModbusClient
+from rotina_automatica_page import RotinaAutomaticaPage
 
 CONFIG_FILE = "plc_config.json"
 DEFAULT_MODBUS_SLAVE_ID = 1
@@ -20,49 +21,52 @@ class ModbusDevice:
         self.unit_id = int(unit_id)
         self.client = None
         self.is_connected = False
+        self.lock = threading.RLock()
 
     def connect(self):
-        self.disconnect()
-        port = int(self.port)
+        with self.lock:
+            self.disconnect()
+            port = int(self.port)
 
-        last_error = None
-        for port in [port]:
-            client = None
-            try:
-                print(f"[MODBUS - {self.name}] Tentando abrir conexao com {self.ip}:{port} slave_id={self.unit_id}...")
-                client = ModbusClient(host=self.ip, port=port, unit_id=self.unit_id, auto_open=False, timeout=1.0)
-                if client.open():
-                    self.client = client
-                    self.port = port
-                    self.is_connected = True
-                    print(f"[MODBUS - {self.name}] Sucesso! Conectado a: {self.ip}:{port}")
-                    return True, f"Conectado ({self.ip}:{port}, slave {self.unit_id})"
-                last_error = f"Conexao recusada ({self.ip}:{port})"
-            except Exception as e:
-                last_error = str(e)
-                print(f"[MODBUS - {self.name}] Erro ao conectar em {self.ip}:{port}: {e}")
-            finally:
-                if client is not None and not self.is_connected:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
-            time.sleep(0.2)
+            last_error = None
+            for port in [port]:
+                client = None
+                try:
+                    print(f"[MODBUS - {self.name}] Tentando abrir conexao com {self.ip}:{port} slave_id={self.unit_id}...")
+                    client = ModbusClient(host=self.ip, port=port, unit_id=self.unit_id, auto_open=False, timeout=1.0)
+                    if client.open():
+                        self.client = client
+                        self.port = port
+                        self.is_connected = True
+                        print(f"[MODBUS - {self.name}] Sucesso! Conectado a: {self.ip}:{port}")
+                        return True, f"Conectado ({self.ip}:{port}, slave {self.unit_id})"
+                    last_error = f"Conexao recusada ({self.ip}:{port})"
+                except Exception as e:
+                    last_error = str(e)
+                    print(f"[MODBUS - {self.name}] Erro ao conectar em {self.ip}:{port}: {e}")
+                finally:
+                    if client is not None and not self.is_connected:
+                        try:
+                            client.close()
+                        except Exception:
+                            pass
+                time.sleep(0.2)
 
-        self.is_connected = False
-        self.client = None
-        return False, last_error or f"Conexao recusada ({self.ip}:{self.port})"
+            self.is_connected = False
+            self.client = None
+            return False, last_error or f"Conexao recusada ({self.ip}:{self.port})"
 
     def disconnect(self):
-        if self.client:
-            try: 
-                print(f"[MODBUS - {self.name}] Fechando conexão...")
-                self.client.close()
-            except Exception as e: 
-                print(f"[MODBUS - {self.name}] Erro ao fechar: {e}")
-            finally:
-                self.client = None
-        self.is_connected = False
+        with self.lock:
+            if self.client:
+                try:
+                    print(f"[MODBUS - {self.name}] Fechando conexão...")
+                    self.client.close()
+                except Exception as e:
+                    print(f"[MODBUS - {self.name}] Erro ao fechar: {e}")
+                finally:
+                    self.client = None
+            self.is_connected = False
 
     def _modbus_status(self):
         if not self.client:
@@ -81,69 +85,67 @@ class ModbusDevice:
         return " | ".join(parts)
 
     def send_write(self, memory_address, value=True):
-        if not self.is_connected or not self.client: 
-            return False, "Não conectado"
-        try:
-            addr = int(memory_address)
-            val_int = 1 if value else 0
-            
-            if addr >= 40000:
-                reg_addr = addr - 40000 if addr > 40000 else addr
-                success = self.client.write_single_register(reg_addr, val_int)
-            else:
-                # Tenta primeiro como Coil (Padrão)
-                print(f"[MODBUS WRITE - {self.name}] Tentando Coil no endereço {addr}...")
-                success = self.client.write_single_coil(addr, value)
-                
-                # Se falhar e for Robo, tenta como Holding Register no mesmo servidor Modbus
-                if not success and self.name.startswith("Rob"):
-                    print(f"[MODBUS WRITE - {self.name}] Coil falhou. Tentando como Register no {addr}...")
-                    success = self.client.write_single_register(addr, val_int)
+        with self.lock:
+            if not self.is_connected or not self.client:
+                return False, "Não conectado"
+            try:
+                addr = int(memory_address)
+                val_int = 1 if value else 0
 
-            if success:
-                print(f"[MODBUS WRITE - {self.name}] Sucesso no endereço {addr}!")
-                return True, "Escrita OK"
-            else:
+                if addr >= 40000:
+                    reg_addr = addr - 40000 if addr > 40000 else addr
+                    success = self.client.write_single_register(reg_addr, val_int)
+                else:
+                    print(f"[MODBUS WRITE - {self.name}] Tentando Coil no endereço {addr}...")
+                    success = self.client.write_single_coil(addr, value)
+
+                    if not success and self.name.startswith("Rob"):
+                        print(f"[MODBUS WRITE - {self.name}] Coil falhou. Tentando como Register no {addr}...")
+                        success = self.client.write_single_register(addr, val_int)
+
+                if success:
+                    print(f"[MODBUS WRITE - {self.name}] Sucesso no endereço {addr}!")
+                    return True, "Escrita OK"
+
                 detail = self._modbus_status()
                 print(f"[MODBUS WRITE ERROR - {self.name}] Ambas tentativas (Coil/Register) falharam no endereco {addr}. {detail}")
                 return False, f"Falha na escrita ({detail})" if detail else "Falha na escrita"
-        except Exception as e:
-            return False, str(e)
+            except Exception as e:
+                return False, str(e)
 
     def send_read(self, memory_address):
-        if not self.is_connected or not self.client: 
-            return False, "Não conectado"
-        try:
-            addr = int(memory_address)
-            
-            if addr >= 40000:
-                reg_addr = addr - 40000 if addr > 40000 else addr
-                result = self.client.read_holding_registers(reg_addr, 1)
-            elif addr >= 30000:
-                reg_addr = addr - 30000 if addr > 30000 else addr
-                result = self.client.read_input_registers(reg_addr, 1)
-            elif addr >= 10000:
-                reg_addr = addr - 10000 if addr > 10000 else addr
-                result = self.client.read_discrete_inputs(reg_addr, 1)
-            else:
-                # Tenta Coil (Padrão)
-                result = self.client.read_coils(addr, 1)
-                
-                # Fallback para Robô: Se Coil falhar, tenta Holding Register (4xxxx) ou Input Register (3xxxx)
-                if result is None and self.name.startswith("Rob"):
-                    print(f"[MODBUS READ - {self.name}] Coil {addr} falhou. Tentando Holding Register...")
-                    result = self.client.read_holding_registers(addr, 1)
-                    if result is None:
-                        print(f"[MODBUS READ - {self.name}] Holding falhou. Tentando Input Register...")
-                        result = self.client.read_input_registers(addr, 1)
+        with self.lock:
+            if not self.is_connected or not self.client:
+                return False, "Não conectado"
+            try:
+                addr = int(memory_address)
 
-            if result is not None:
-                return True, str(result[0])
-            else:
+                if addr >= 40000:
+                    reg_addr = addr - 40000 if addr > 40000 else addr
+                    result = self.client.read_holding_registers(reg_addr, 1)
+                elif addr >= 30000:
+                    reg_addr = addr - 30000 if addr > 30000 else addr
+                    result = self.client.read_input_registers(reg_addr, 1)
+                elif addr >= 10000:
+                    reg_addr = addr - 10000 if addr > 10000 else addr
+                    result = self.client.read_discrete_inputs(reg_addr, 1)
+                else:
+                    result = self.client.read_coils(addr, 1)
+
+                    if result is None and self.name.startswith("Rob"):
+                        print(f"[MODBUS READ - {self.name}] Coil {addr} falhou. Tentando Holding Register...")
+                        result = self.client.read_holding_registers(addr, 1)
+                        if result is None:
+                            print(f"[MODBUS READ - {self.name}] Holding falhou. Tentando Input Register...")
+                            result = self.client.read_input_registers(addr, 1)
+
+                if result is not None:
+                    return True, str(result[0])
+
                 detail = self._modbus_status()
                 return False, f"Falha na leitura ({detail})" if detail else "Falha na leitura"
-        except Exception as e:
-            return False, str(e)
+            except Exception as e:
+                return False, str(e)
 
 
 class PLCPanelApp:
@@ -159,6 +161,7 @@ class PLCPanelApp:
         self.dev_clp = None
         self.dev_robo = None
         self.polling_active = False
+        self.current_page = None
 
         # Variáveis Conexão
         self.var_ip_clp = tk.StringVar(value=self.config_data.get("ip_clp", "192.168.1.5"))
@@ -180,6 +183,7 @@ class PLCPanelApp:
 
     def on_close(self):
         self.polling_active = False
+        self.current_page = None
         if self.dev_clp:
             self.dev_clp.disconnect()
         if self.dev_robo:
@@ -243,7 +247,18 @@ class PLCPanelApp:
         self.style.configure("ToggleOff.TButton", font=("Arial", 11, "bold"), foreground="black")
         self.style.configure("ToggleOn.TButton", font=("Arial", 11, "bold"), foreground="white", background="red")
 
-        header_frame = ttk.Frame(self.root)
+        self.nav_frame = ttk.Frame(self.root)
+        self.nav_frame.pack(fill="x", padx=10, pady=(8, 0))
+        ttk.Button(self.nav_frame, text="Painel Manual", command=self.show_manual_page).pack(side="left", padx=(0, 5))
+        ttk.Button(self.nav_frame, text="Rotina Automática", command=self.show_auto_page).pack(side="left", padx=5)
+
+        self.page_container = ttk.Frame(self.root)
+        self.page_container.pack(fill="both", expand=True)
+
+        self.manual_page = ttk.Frame(self.page_container)
+        self.auto_page = RotinaAutomaticaPage(self.page_container, self)
+
+        header_frame = ttk.Frame(self.manual_page)
         header_frame.pack(fill="x", padx=10, pady=5)
         header_frame.columnconfigure(0, weight=1)
         header_frame.columnconfigure(1, weight=1)
@@ -270,7 +285,7 @@ class PLCPanelApp:
         self.lbl_status_robo = ttk.Label(robo_frame, text="Desconectado", foreground="red")
         self.lbl_status_robo.pack(side="left")
 
-        body_container = ttk.Frame(self.root)
+        body_container = ttk.Frame(self.manual_page)
         body_container.pack(fill="both", expand=True, padx=10, pady=5)
         
         self.body_canvas = tk.Canvas(body_container, highlightthickness=0)
@@ -306,7 +321,7 @@ class PLCPanelApp:
         self.action_panel_frame = ttk.LabelFrame(self.scrollable_frame, text="Controle Manual", padding=10)
         self.action_panel_frame.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
 
-        self.monitor_frame = ttk.LabelFrame(self.root, text="Monitoramento de Retorno (Polling)", padding=10)
+        self.monitor_frame = ttk.LabelFrame(self.manual_page, text="Monitoramento de Retorno (Polling)", padding=10)
         self.monitor_frame.pack(fill="both", expand=False, padx=10, pady=5)
 
         self.status_disp_frame = ttk.Frame(self.monitor_frame)
@@ -314,6 +329,21 @@ class PLCPanelApp:
 
         self.log_text = tk.Text(self.monitor_frame, height=6, state="disabled", bg="#1e1e1e", fg="#00ff00", font=("Consolas", 9))
         self.log_text.pack(fill="both", expand=True, pady=5)
+        self.show_manual_page()
+
+    def show_manual_page(self):
+        self._show_page(self.manual_page)
+
+    def show_auto_page(self):
+        self._show_page(self.auto_page)
+
+    def _show_page(self, page):
+        if self.current_page is page:
+            return
+        if self.current_page is not None:
+            self.current_page.pack_forget()
+        self.current_page = page
+        self.current_page.pack(fill="both", expand=True)
 
     def add_action_row(self, name="Nova Ação", mem="", tgt="CLP"):
         uid = f"act_{self.action_counter}"
@@ -523,39 +553,43 @@ class PLCPanelApp:
         
         self.log("Iniciando SCAN ampliado no Robô (Blocos 0, 1000, 2000)...")
         def _task():
-            client = self.dev_robo.client
             found = []
             
             # Vamos testar 3 blocos comuns em robôs industriais
             blocks = [0, 1000, 2000]
             limit = 120
             
-            for start in blocks:
-                print(f"[SCAN] Verificando faixa {start} a {start+limit}...")
+            with self.dev_robo.lock:
+                client = self.dev_robo.client
+                if not self.dev_robo.is_connected or not client:
+                    self.root.after(0, lambda: self.log("SCAN cancelado: Robô desconectado."))
+                    return
+                for start in blocks:
+                    print(f"[SCAN] Verificando faixa {start} a {start+limit}...")
                 
-                # Scan Coils
-                res = client.read_coils(start, limit)
-                if res:
-                    for i, v in enumerate(res):
-                        if v: found.append(f"Coil {start+i}: {v}")
+                    # Scan Coils
+                    res = client.read_coils(start, limit)
+                    if res:
+                        for i, v in enumerate(res):
+                            if v: found.append(f"Coil {start+i}: {v}")
                 
-                # Scan Inputs
-                res = client.read_discrete_inputs(start, limit)
-                if res:
-                    for i, v in enumerate(res):
-                        if v: found.append(f"Input {start+i}: {v}")
+                    # Scan Inputs
+                    res = client.read_discrete_inputs(start, limit)
+                    if res:
+                        for i, v in enumerate(res):
+                            if v: found.append(f"Input {start+i}: {v}")
 
-                # Scan Holding
-                res = client.read_holding_registers(start, limit)
-                if res:
-                    for i, v in enumerate(res):
-                        if v != 0: found.append(f"Holding {start+i}: {v}")
+                    # Scan Holding
+                    res = client.read_holding_registers(start, limit)
+                    if res:
+                        for i, v in enumerate(res):
+                            if v != 0: found.append(f"Holding {start+i}: {v}")
 
-                # Scan InRegs
-                res = client.read_input_registers(start, limit)
-                if res:
-                    for i, v in enumerate(res):
-                        if v != 0: found.append(f"InReg {start+i}: {v}")
+                    # Scan InRegs
+                    res = client.read_input_registers(start, limit)
+                    if res:
+                        for i, v in enumerate(res):
+                            if v != 0: found.append(f"InReg {start+i}: {v}")
 
             if found:
                 msg_text = f"Sucesso! Encontrados {len(found)} endereços ativos:\n\n" + "\n".join(found[:25])

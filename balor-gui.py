@@ -84,8 +84,8 @@ class BalorStudioLite:
         self.custom_scene_items = [] 
         # Will hold dicts: {'id', 'file', 'ox', 'oy', 'sx', 'sy', 'rot', 'color', 'visible'}
         self.combined_offsets = {
-            'base_1': [-20.0, 0.0],
-            'base_2': [20.0, 0.0]
+            'base_1': [-8.4325, -16.0017],
+            'base_2': [-7.1016, -41.6378]
         }
         self.is_combined_mode = False
         
@@ -793,8 +793,8 @@ class BalorStudioLite:
             "Arte 1 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "-15.24", "offset_y": "-31.89", "scale": "1.0",
-                "width_mm": "14.00", "height_mm": "39.62",
+                "offset_x": "-8.4325", "offset_y": "-16.0017", "scale": "1.0",
+                "width_mm": "12.00", "height_mm": "39.62",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "6.0", "barcode_w_scale": "1.338",
                 "text_scale": "2.5", "text_x_off": "0.0", "text_y_off": "0.0",
@@ -805,7 +805,7 @@ class BalorStudioLite:
             "Arte 2 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "0.0", "offset_y": "0.0", "scale": "1.0",
+                "offset_x": "-7.1016", "offset_y": "-41.6378", "scale": "1.0",
                 "width_mm": "29.00", "height_mm": "9.00",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "5.1", "barcode_w_scale": "1.0",
@@ -824,7 +824,12 @@ class BalorStudioLite:
                 "barcode_rot": "90", "text_rot": "270",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "group_barcode": True,
-                "is_combined": True
+                "is_combined": True,
+                "combined_offsets": {
+                    "base_1": [-8.4325, -16.0017],
+                    "base_2": [-7.1016, -41.6378]
+                },
+                "obj_visibility": {"base_1": True, "base_2": True}
             }
         }
         if os.path.exists(self.presets_file):
@@ -893,6 +898,16 @@ class BalorStudioLite:
                 self.is_combined_mode = bool(p["is_combined"])
             else:
                 self.is_combined_mode = False
+            if p.get("combined_offsets"):
+                for obj_id in ("base_1", "base_2"):
+                    if obj_id in p["combined_offsets"]:
+                        try:
+                            ox, oy = p["combined_offsets"][obj_id]
+                            self.combined_offsets[obj_id] = [float(ox), float(oy)]
+                        except Exception:
+                            pass
+            if p.get("obj_visibility"):
+                self.obj_visibility.update(p["obj_visibility"])
             
             # Force UI workspace refresh
             self.update_content_mode(from_btn=True)
@@ -925,7 +940,9 @@ class BalorStudioLite:
                 "text_space": self.var_text_space.get(),
                 "barcode_type": self.var_barcode_type.get(),
                 "group_barcode": self.var_group_barcode.get(),
-                "is_combined": getattr(self, 'is_combined_mode', False)
+                "is_combined": getattr(self, 'is_combined_mode', False),
+                "combined_offsets": self.combined_offsets if getattr(self, 'is_combined_mode', False) else {},
+                "obj_visibility": self.obj_visibility if getattr(self, 'is_combined_mode', False) else {}
             }
             with open(self.presets_file, 'w') as f:
                 json.dump(self.presets, f)
