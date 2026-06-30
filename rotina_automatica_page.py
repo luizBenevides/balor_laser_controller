@@ -36,7 +36,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_preset_arte2 = tk.StringVar(value=AUTO_PRESET_ARTE_2)
         self.var_pulse_ms = tk.StringVar(value="1500")
         self.var_after_m70_s = tk.StringVar(value="8.0") #espera do robo deixar a peça no molde
-        self.var_after_rotate_s = tk.StringVar(value="5.0")
+        self.var_after_rotate_s = tk.StringVar(value="4.0")
         self.var_after_return_s = tk.StringVar(value="1.0")
         self.var_robot_routines_started = tk.BooleanVar(value=False)
         self.var_auto_flow_enabled = tk.BooleanVar(value=False)

@@ -111,7 +111,8 @@ class BarcodeGenerator:
         elif is_arte2:
             # Physical compensation: 29.0 mm vector was measuring ~31.0 mm on the part.
             target_barcode_width = 27.1
-            target_barcode_height = 5.1
+            # Physical compensation: 9.0 mm overall width was measuring ~11.0 mm on the part.
+            target_barcode_height = 4.17
             # Physical compensation: 3.0 mm vector guard was measuring ~4.0 mm on the part.
             guard_width = 2.25
             guard_gap = 0.35
@@ -227,8 +228,8 @@ class BarcodeGenerator:
                 t_cy_offset = 5.15 / 2 + 1.70 + 5.15 / 2
             elif is_arte2:
                 scale_x_text = 22.0 / act_w if act_w > 0 else 1.0
-                scale_y_text = 3.6 / act_h if act_h > 0 else 1.0
-                t_cy_offset = 5.1 / 2 + 0.3 + 3.6 / 2
+                scale_y_text = 2.94 / act_h if act_h > 0 else 1.0
+                t_cy_offset = 4.17 / 2 + 0.25 + 2.94 / 2
             else:
                 scale_x_text = 1.0
                 scale_y_text = 1.0
@@ -265,7 +266,7 @@ class BarcodeGenerator:
                     svg_content += f'  <path id="text" d="{d}" fill="{text_color}" fill-rule="evenodd" stroke="{text_color}" />\n'
         except Exception as e:
             print(f"[DEBUG] Error converting text to paths: {e}")
-            t_cy_offset_fallback = 6.5 / 2 + 3.0 + 6.0 / 2 if is_arte1 else (5.1 / 2 + 0.3 + 3.6 / 2 if is_arte2 else barcode_height / 2 + 10)
+            t_cy_offset_fallback = 6.5 / 2 + 3.0 + 6.0 / 2 if is_arte1 else (4.17 / 2 + 0.25 + 2.94 / 2 if is_arte2 else barcode_height / 2 + 10)
             text_y_raw = cy + t_cy_offset_fallback if text_pos == "bottom" else cy - t_cy_offset_fallback
             text_x, text_y = rotate_point(cx, text_y_raw, barcode_rot, cx, cy)
             text_id = "barcode" if group else "text"
