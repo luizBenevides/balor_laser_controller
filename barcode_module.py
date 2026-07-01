@@ -110,11 +110,11 @@ class BarcodeGenerator:
             guard_gap = 0.40
         elif is_arte2:
             # Physical compensation: 29.0 mm vector was measuring ~31.0 mm on the part.
-            target_barcode_width = 27.1
+            target_barcode_width = 26.1
             # Physical compensation: 9.0 mm overall width was measuring ~11.0 mm on the part.
             target_barcode_height = 4.17
             # Physical compensation: 3.0 mm vector guard was measuring ~4.0 mm on the part.
-            guard_width = 2.25
+            guard_width = 2.25 # BARCODE GUARD TAMANHO
             guard_gap = 0.35
         else:
             target_barcode_width = act_bw
