@@ -19,9 +19,13 @@ class DashboardPage(ttk.Frame):
         self.refresh_status_loop()
 
     def build_ui(self):
+        style = ttk.Style(self)
+        style.configure("Dashboard.Treeview", font=("Arial", 14), rowheight=34)
+        style.configure("Dashboard.Treeview.Heading", font=("Arial", 13, "bold"))
+
         top = ttk.Frame(self, padding=12)
         top.pack(fill="x")
-        ttk.Label(top, text="Dashboard de Produção", font=("Arial", 16, "bold")).pack(side="left")
+        ttk.Label(top, text="Dashboard de Produção", font=("Arial", 22, "bold")).pack(side="left")
         ttk.Button(top, text="Voltar à Rotina Automática", command=self.app.show_auto_page).pack(side="right", padx=5)
         ttk.Button(top, text="Painel Manual", command=self.app.show_manual_page).pack(side="right", padx=5)
 
@@ -40,9 +44,9 @@ class DashboardPage(ttk.Frame):
         self._summary_card(summary, 2, "Total", self.var_total, "peças analisadas", self.var_pct_total, "#1557a6")
 
         table_frame = ttk.LabelFrame(self, text="Seriais gravados", padding=10)
-        table_frame.pack(fill="x", expand=False, padx=12, pady=10)
+        table_frame.pack(fill="both", expand=True, padx=12, pady=10)
         columns = ("hora", "serial", "frontal", "traseira", "inspecao")
-        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=6)
+        self.tree = ttk.Treeview(table_frame, columns=columns, show="headings", height=12, style="Dashboard.Treeview")
         self.tree.heading("hora", text="Data/Hora")
         self.tree.heading("serial", text="Serial")
         self.tree.heading("frontal", text="Frontal")
@@ -55,28 +59,28 @@ class DashboardPage(ttk.Frame):
         self.tree.column("inspecao", width=120, anchor="center")
         scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.tree.yview)
         self.tree.configure(yscrollcommand=scroll.set)
-        self.tree.pack(side="left", fill="x", expand=True)
+        self.tree.pack(side="left", fill="both", expand=True)
         scroll.pack(side="right", fill="y")
 
     def _status_led(self, parent, label, col):
         frame = ttk.Frame(parent)
         frame.grid(row=0, column=col, sticky="w", padx=18, pady=4)
-        canvas = tk.Canvas(frame, width=18, height=18, highlightthickness=0)
-        dot = canvas.create_oval(3, 3, 15, 15, fill="red", outline="black")
+        canvas = tk.Canvas(frame, width=26, height=26, highlightthickness=0)
+        dot = canvas.create_oval(4, 4, 22, 22, fill="red", outline="black")
         canvas.pack(side="left", padx=(0, 6))
-        ttk.Label(frame, text=label, font=("Arial", 10, "bold")).pack(side="left")
-        value = ttk.Label(frame, text="Desconectado", foreground="red")
+        ttk.Label(frame, text=label, font=("Arial", 14, "bold")).pack(side="left")
+        value = ttk.Label(frame, text="Desconectado", foreground="red", font=("Arial", 13, "bold"))
         value.pack(side="left", padx=6)
         return {"canvas": canvas, "dot": dot, "value": value}
 
     def _summary_card(self, parent, col, title, number_var, subtitle, pct_var, color):
         frame = tk.Frame(parent, bg="#f5f7fb", highlightbackground="#9eb0c0", highlightthickness=1)
         frame.grid(row=0, column=col, sticky="nsew", padx=7, pady=4)
-        header = tk.Label(frame, text=title, bg=color, fg="white", font=("Arial", 11, "bold"), anchor="w", padx=12, pady=8)
+        header = tk.Label(frame, text=title, bg=color, fg="white", font=("Arial", 16, "bold"), anchor="w", padx=12, pady=8)
         header.pack(fill="x")
-        tk.Label(frame, textvariable=number_var, bg="#f5f7fb", fg=color, font=("Arial", 36, "bold"), pady=12).pack()
-        tk.Label(frame, text=subtitle, bg="#f5f7fb", fg="#555", font=("Arial", 10)).pack()
-        tk.Label(frame, textvariable=pct_var, bg="#e8eef7", fg=color, font=("Arial", 10, "bold"), padx=10, pady=3).pack(pady=10)
+        tk.Label(frame, textvariable=number_var, bg="#f5f7fb", fg=color, font=("Arial", 54, "bold"), pady=12).pack()
+        tk.Label(frame, text=subtitle, bg="#f5f7fb", fg="#555", font=("Arial", 14)).pack()
+        tk.Label(frame, textvariable=pct_var, bg="#e8eef7", fg=color, font=("Arial", 14, "bold"), padx=12, pady=4).pack(pady=10)
 
     def set_led(self, led, connected):
         color = "#00c853" if connected else "red"
