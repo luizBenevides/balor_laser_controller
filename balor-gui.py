@@ -793,7 +793,7 @@ class BalorStudioLite:
             "Arte 1 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "-8.4325", "offset_y": "-16.0017", "scale": "1.0",
+                "offset_x": "-6.9076", "offset_y": "-14.8834", "scale": "1.0",
                 "width_mm": "12.00", "height_mm": "39.62",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "6.0", "barcode_w_scale": "1.338",
@@ -805,7 +805,7 @@ class BalorStudioLite:
             "Arte 2 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "-7.1016", "offset_y": "-41.6378", "scale": "1.0",
+                "offset_x": "-6.1260", "offset_y": "-40.8248", "scale": "1.0",
                 "width_mm": "29.00", "height_mm": "9.00",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "5.1", "barcode_w_scale": "1.0",
@@ -826,8 +826,8 @@ class BalorStudioLite:
                 "group_barcode": True,
                 "is_combined": True,
                 "combined_offsets": {
-                    "base_1": [-8.4325, -16.0017],
-                    "base_2": [-7.1016, -41.6378]
+                    "base_1": [-6.9076, -14.8834],
+                    "base_2": [-6.1260, -40.8248]
                 },
                 "obj_visibility": {"base_1": True, "base_2": True}
             }
