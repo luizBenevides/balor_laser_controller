@@ -6,6 +6,7 @@ import threading
 import time
 from pyModbusTCP.client import ModbusClient
 from rotina_automatica_page import RotinaAutomaticaPage
+from dashboard_page import DashboardPage
 
 CONFIG_FILE = "plc_config.json"
 DEFAULT_MODBUS_SLAVE_ID = 1
@@ -251,12 +252,14 @@ class PLCPanelApp:
         self.nav_frame.pack(fill="x", padx=10, pady=(8, 0))
         ttk.Button(self.nav_frame, text="Painel Manual", command=self.show_manual_page).pack(side="left", padx=(0, 5))
         ttk.Button(self.nav_frame, text="Rotina Automática", command=self.show_auto_page).pack(side="left", padx=5)
+        ttk.Button(self.nav_frame, text="Dashboard", command=self.show_dashboard_page).pack(side="left", padx=5)
 
         self.page_container = ttk.Frame(self.root)
         self.page_container.pack(fill="both", expand=True)
 
         self.manual_page = ttk.Frame(self.page_container)
         self.auto_page = RotinaAutomaticaPage(self.page_container, self)
+        self.dashboard_page = DashboardPage(self.page_container, self)
 
         header_frame = ttk.Frame(self.manual_page)
         header_frame.pack(fill="x", padx=10, pady=5)
@@ -315,7 +318,7 @@ class PLCPanelApp:
         btn_frame.grid(row=2, column=0, columnspan=4, pady=15, sticky="ew")
         ttk.Button(btn_frame, text="+ Adicionar Ação", command=lambda: self.add_action_row()).pack(side="left", padx=5)
         ttk.Button(btn_frame, text="+ Adicionar Status", command=lambda: self.add_status_row()).pack(side="left", padx=5)
-        ttk.Button(btn_frame, text="SCAN ROBÔ", command=self.quick_scan_robo, style="ToggleOn.TButton").pack(side="left", padx=20)
+        ttk.Button(btn_frame, text="SCAN ROBO", command=self.quick_scan_robo, style="ToggleOn.TButton").pack(side="left", padx=20)
         ttk.Button(btn_frame, text="Salvar Configurações", command=self.save_config).pack(side="right", padx=5)
 
         self.action_panel_frame = ttk.LabelFrame(self.scrollable_frame, text="Controle Manual", padding=10)
@@ -336,6 +339,13 @@ class PLCPanelApp:
 
     def show_auto_page(self):
         self._show_page(self.auto_page)
+
+    def show_dashboard_page(self):
+        self._show_page(self.dashboard_page)
+
+    def add_dashboard_record(self, serial, frontal=True, traseira=True, inspecao="Aprovado"):
+        if hasattr(self, "dashboard_page"):
+            self.dashboard_page.add_record(serial, frontal, traseira, inspecao)
 
     def _show_page(self, page):
         if self.current_page is page:

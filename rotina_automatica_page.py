@@ -29,6 +29,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.db_manager = db_module.DBManager()
         self.db_serials = []
         self.current_record = None
+        self.last_laser_ok = False
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -106,6 +107,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.btn_start.pack(side="left", padx=5, ipadx=10, ipady=6)
         ttk.Button(buttons, text="Parar", command=self.stop_auto).pack(side="left", padx=5, ipadx=10, ipady=6)
         ttk.Button(buttons, text="Abrir Balor GUI", command=self.open_balor_gui).pack(side="left", padx=5, ipadx=10, ipady=6)
+        ttk.Button(buttons, text="Ir para Dashboard", command=self.app.show_dashboard_page).pack(side="left", padx=5, ipadx=10, ipady=6)
         ttk.Button(buttons, text="Voltar ao Painel Manual", command=self.app.show_manual_page).pack(side="right", padx=5, ipadx=10, ipady=6)
 
         manual = ttk.LabelFrame(self, text="Botões Manuais das Memórias", padding=10)
@@ -449,6 +451,8 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.write_mem(AUTO_MEM_OK, True)
                 self.write_mem(AUTO_MEM_NG, False)
                 self.safe_log("Ciclo concluído. M74 ligado como OK.")
+                if hasattr(self.app, "add_dashboard_record"):
+                    self.app.add_dashboard_record(self.var_serial.get().strip(), True, True, "Aprovado")
                 self.finish_cycle_serial()
 
                 self.set_status("Aguardando M70 desligar para novo ciclo...")
@@ -594,6 +598,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         import balor.sender
 
         machine = balor.sender.Sender()
+        self.last_laser_ok = False
         try:
             self.safe_log("Abrindo conexão USB da laser...")
             open_started_at = time.perf_counter()
@@ -605,6 +610,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             started_at = time.perf_counter()
             machine.execute(command_list=commands, loop_count=1)
             elapsed = time.perf_counter() - started_at
+            self.last_laser_ok = True
             self.safe_log(f"Laser finalizou {suffix}: {preset_name} ({elapsed:.2f}s)")
         finally:
             try:
