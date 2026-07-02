@@ -1,5 +1,6 @@
 import json
 import os
+import socket
 import subprocess
 import sys
 import threading
@@ -17,6 +18,13 @@ AUTO_MEM_NG = "73"
 AUTO_MEM_OK = "74"
 AUTO_PRESET_ARTE_1 = "Arte 1 (Serial Banco)"
 AUTO_PRESET_ARTE_2 = "Arte 2 (Serial Banco)"
+KEYENCE_IP = "192.168.1.29"
+KEYENCE_PORT = 8500
+KEYENCE_TIMEOUT_S = 10
+KEYENCE_RECV_CHUNK = 1024
+KEYENCE_IDLE_GRACE_S = 0.25
+KEYENCE_TRIGGER_CMD = b"TRG\r"
+CAMERA_AFTER_MARK_DELAY_S = 7.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -30,6 +38,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.db_serials = []
         self.current_record = None
         self.last_laser_ok = False
+        self.camera_sock = None
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -460,18 +469,27 @@ class RotinaAutomaticaPage(ttk.Frame):
                 if not self.running:
                     break
 
-                self.mark_both_artes(prebuild)
+                frontal_ok, traseira_ok = self.mark_both_artes(prebuild)
+                aprovado = frontal_ok and traseira_ok
 
                 self.set_status("Pulsando M72 para voltar giro...")
                 self.pulse_mem(AUTO_MEM_VOLTA_GIRO)
                 time.sleep(max(float(self.var_after_return_s.get()), 0.0))
 
-                self.set_status("Liberando M74 OK...")
-                self.write_mem(AUTO_MEM_OK, True)
-                self.write_mem(AUTO_MEM_NG, False)
-                self.safe_log("Ciclo concluído. M74 ligado como OK.")
+                if aprovado:
+                    self.set_status("Liberando M74 OK...")
+                    self.write_mem(AUTO_MEM_OK, True)
+                    self.write_mem(AUTO_MEM_NG, False)
+                    self.safe_log("Ciclo concluido. Inspecoes OK; M74 ligado como aprovado.")
+                    inspecao = "Aprovado"
+                else:
+                    self.set_status("Liberando M73 NG...")
+                    self.write_mem(AUTO_MEM_OK, False)
+                    self.write_mem(AUTO_MEM_NG, True)
+                    self.safe_log("Ciclo concluido. Uma ou mais inspecoes reprovaram; M73 ligado como NG.")
+                    inspecao = "Reprovado"
                 if hasattr(self.app, "add_dashboard_record"):
-                    self.app.add_dashboard_record(self.var_serial.get().strip(), True, True, "Aprovado")
+                    self.app.add_dashboard_record(self.var_serial.get().strip(), frontal_ok, traseira_ok, inspecao)
                 self.finish_cycle_serial()
 
                 self.set_status("Aguardando M70 desligar para novo ciclo...")
@@ -481,6 +499,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             self.safe_log(f"Erro na rotina: {exc}")
             self.set_status("Erro")
         finally:
+            self.camera_disconnect()
             self.running = False
             self.after(0, self.update_auto_button_state)
             if self.var_status.get() != "Erro":
@@ -533,6 +552,8 @@ class RotinaAutomaticaPage(ttk.Frame):
         commands_arte1, preset_arte1 = self.wait_prebuilt_job(prebuild, "arte1")
         self.set_status("Gravando Arte 1...")
         self.execute_laser_job(commands_arte1, preset_arte1, "arte1")
+        self.wait_before_camera_trigger("Arte 1")
+        frontal_ok = self.trigger_camera_inspection("Arte 1")
 
         self.set_status("Acionando M71 para girar peça...")
         self.pulse_command_mem(AUTO_MEM_GIRA_PECA, "Giro da peça")
@@ -543,6 +564,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         commands_arte2, preset_arte2 = self.wait_prebuilt_job(prebuild, "arte2")
         self.set_status("Gravando Arte 2...")
         self.execute_laser_job(commands_arte2, preset_arte2, "arte2")
+        self.wait_before_camera_trigger("Arte 2")
+        traseira_ok = self.trigger_camera_inspection("Arte 2")
+        return frontal_ok, traseira_ok
 
     def mark_preset(self, preset_name, suffix):
         commands = self.build_laser_job(preset_name, suffix)
@@ -660,6 +684,111 @@ class RotinaAutomaticaPage(ttk.Frame):
                 pass
 
 
+    def camera_is_connected(self):
+        return self.camera_sock is not None
+
+    def wait_before_camera_trigger(self, label):
+        self.set_status(f"Aguardando fumaca dissipar antes da inspecao {label}...")
+        self.safe_log(f"Camera {label}: aguardando {CAMERA_AFTER_MARK_DELAY_S:.1f}s antes do trigger.")
+        time.sleep(CAMERA_AFTER_MARK_DELAY_S)
+
+    def camera_disconnect(self):
+        if self.camera_sock:
+            try:
+                self.camera_sock.close()
+            except Exception:
+                pass
+        self.camera_sock = None
+
+    def camera_connect(self):
+        if self.camera_is_connected():
+            return True
+        try:
+            self.safe_log(f"Camera: conectando em {KEYENCE_IP}:{KEYENCE_PORT}...")
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            sock.settimeout(KEYENCE_TIMEOUT_S)
+            sock.connect((KEYENCE_IP, KEYENCE_PORT))
+            self.camera_sock = sock
+            self.safe_log("Camera: conectada.")
+            return True
+        except Exception as exc:
+            self.camera_disconnect()
+            self.safe_log(f"Camera: falha ao conectar ({type(exc).__name__}: {exc})")
+            return False
+
+    def camera_clear_buffer(self):
+        sock = self.camera_sock
+        if not sock:
+            return
+        sock.setblocking(False)
+        try:
+            while True:
+                chunk = sock.recv(KEYENCE_RECV_CHUNK)
+                if not chunk:
+                    break
+        except BlockingIOError:
+            pass
+        finally:
+            sock.setblocking(True)
+            sock.settimeout(KEYENCE_TIMEOUT_S)
+
+    def camera_recv_packet(self):
+        sock = self.camera_sock
+        chunks = []
+        deadline = time.monotonic() + KEYENCE_TIMEOUT_S
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise socket.timeout()
+            sock.settimeout(min(remaining, KEYENCE_IDLE_GRACE_S if chunks else remaining))
+            try:
+                chunk = sock.recv(KEYENCE_RECV_CHUNK)
+            except socket.timeout:
+                if chunks:
+                    break
+                raise
+            if not chunk:
+                self.camera_disconnect()
+                raise ConnectionError("camera fechou a conexao")
+            chunks.append(chunk)
+            if b"\r" in chunk or b"\n" in chunk:
+                break
+        sock.settimeout(KEYENCE_TIMEOUT_S)
+        return b"".join(chunks)
+
+    def parse_camera_response(self, data):
+        response = data.decode("ascii", errors="ignore").replace("\x00", "").strip()
+        parts = response.replace("\r", "").replace("\n", "").split(",")
+        result = "PASS" if parts and parts[0].strip() == "1" else "FAIL"
+        serial = parts[1].strip() if len(parts) >= 2 else ""
+        if serial == "0":
+            serial = ""
+        return result, serial, response
+
+    def trigger_camera_inspection(self, label):
+        self.set_status(f"Inspecionando {label}...")
+        if not self.camera_connect():
+            self.safe_log(f"Camera {label}: FAIL por falha de conexao.")
+            return False
+        try:
+            self.camera_clear_buffer()
+            self.safe_log(f"Camera {label}: enviando trigger.")
+            self.camera_sock.sendall(KEYENCE_TRIGGER_CMD)
+            while True:
+                data = self.camera_recv_packet()
+                probe = data.decode("ascii", errors="ignore").replace("\x00", "").strip()
+                if "," in probe:
+                    break
+                self.safe_log(f"Camera {label}: retorno sem resultado ignorado: {probe!r}")
+            result, serial, raw = self.parse_camera_response(data)
+            ok = result == "PASS"
+            self.safe_log(f"Camera {label}: {result} serial={serial or '-'} raw={raw!r}")
+            return ok
+        except Exception as exc:
+            self.camera_disconnect()
+            self.safe_log(f"Camera {label}: FAIL ({type(exc).__name__}: {exc})")
+            return False
     def refresh_status_loop(self):
         def _task():
             values = []
