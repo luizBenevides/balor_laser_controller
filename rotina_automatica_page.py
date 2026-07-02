@@ -247,8 +247,8 @@ class RotinaAutomaticaPage(ttk.Frame):
         return {
             AUTO_PRESET_ARTE_1: {
                 "power": "25", "speed": "3500", "freq": "60", "hatch_enable": True,
-                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-8.4325",
-                "offset_y": "-16.0017", "scale": "1.0", "barcode_h": "6.0",
+                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-6.9076",
+                "offset_y": "-14.8834", "scale": "1.0", "barcode_h": "6.0",
                 "barcode_w_scale": "1.338", "text_scale": "2.5", "text_x_off": "0.0",
                 "text_y_off": "0.0", "barcode_rot": "90", "text_rot": "270",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
@@ -256,8 +256,8 @@ class RotinaAutomaticaPage(ttk.Frame):
             },
             AUTO_PRESET_ARTE_2: {
                 "power": "25", "speed": "3500", "freq": "60", "hatch_enable": True,
-                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-7.1016",
-                "offset_y": "-41.6378", "scale": "1.0", "barcode_h": "5.1",
+                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-6.1260",
+                "offset_y": "-40.8248", "scale": "1.0", "barcode_h": "5.1",
                 "barcode_w_scale": "1.0", "text_scale": "2.5", "text_x_off": "0.0",
                 "text_y_off": "0.0", "barcode_rot": "180", "text_rot": "180",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
@@ -272,8 +272,8 @@ class RotinaAutomaticaPage(ttk.Frame):
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "text_pos": "bottom", "group_barcode": True, "is_combined": True,
                 "combined_offsets": {
-                    "base_1": [-8.4325, -16.0017],
-                    "base_2": [-7.1016, -41.6378]
+                    "base_1": [-6.9076, -14.8834],
+                    "base_2": [-6.1260, -40.8248]
                 },
                 "obj_visibility": {"base_1": True, "base_2": True}
             }
@@ -284,9 +284,28 @@ class RotinaAutomaticaPage(ttk.Frame):
         if os.path.exists(PRESETS_FILE):
             try:
                 with open(PRESETS_FILE, "r", encoding="utf-8") as f:
-                    presets.update(json.load(f))
+                    loaded = json.load(f)
+                for name, preset in loaded.items():
+                    if name not in presets:
+                        presets[name] = preset
+                    elif isinstance(presets[name], dict) and isinstance(preset, dict):
+                        presets[name].update(preset)
+                    else:
+                        presets[name] = preset
             except Exception as exc:
                 print(f"[AUTO-ESTADO] Erro ao carregar presets: {exc}")
+
+        combo = presets.get("Arte 1 + 2 (Frontal + Traseira)", {})
+        offsets = combo.get("combined_offsets", {}) if isinstance(combo, dict) else {}
+        for preset_name, base_name in ((AUTO_PRESET_ARTE_1, "base_1"), (AUTO_PRESET_ARTE_2, "base_2")):
+            if base_name not in offsets:
+                continue
+            try:
+                ox, oy = offsets[base_name]
+                presets[preset_name]["offset_x"] = f"{float(ox):.4f}"
+                presets[preset_name]["offset_y"] = f"{float(oy):.4f}"
+            except Exception:
+                pass
         return presets
 
     def reload_presets(self):
@@ -536,8 +555,10 @@ class RotinaAutomaticaPage(ttk.Frame):
 
         import barcode_module
         import balor.command_list
+        import composer_module
 
         serial = self.var_serial.get().strip() or "TESTE123"
+        raw_svg_file = f"temp_auto_{suffix}_raw.svg"
         svg_file = f"temp_auto_{suffix}.svg"
         job_file = f"temp_auto_{suffix}.bin"
         settings_file = f"temp_auto_{suffix}_settings.csv"
@@ -545,7 +566,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         gen = barcode_module.BarcodeGenerator(font_path=preset.get("text_font", "arial.ttf"))
         gen.generate_code128_svg(
             serial,
-            svg_file,
+            raw_svg_file,
             barcode_height=float(preset.get("barcode_h", "6.0")),
             text_pos=preset.get("text_pos", "bottom"),
             barcode_w_scale=float(preset.get("barcode_w_scale", "1.0")),
@@ -560,6 +581,26 @@ class RotinaAutomaticaPage(ttk.Frame):
             group=bool(preset.get("group_barcode", True)),
         )
 
+        ox = float(preset.get("offset_x", "0.0"))
+        oy = float(preset.get("offset_y", "0.0"))
+        sc = float(preset.get("scale", "1.0"))
+        base_id = "base_1" if suffix == "arte1" else ("base_2" if suffix == "arte2" else suffix)
+        composer_module.SceneComposer.compose_workspace([
+            {
+                "id": base_id,
+                "file": raw_svg_file,
+                "ox": ox,
+                "oy": oy,
+                "sx": sc,
+                "sy": sc,
+                "rot": 0.0,
+                "z": 10,
+                "color": "",
+                "visible": True,
+                "preserve_ids": False,
+            }
+        ], svg_file)
+
         hatch_spacing = preset.get("hatch_spacing", "10.0") if preset.get("hatch_enable", True) else "0"
         with open(settings_file, "w", encoding="utf-8") as f:
             f.write(f"000000 {preset.get('freq', '60')} {preset.get('power', '25')} {preset.get('speed', '3500')} {preset.get('hatch_angle', '90')} {hatch_spacing} None 1\n")
@@ -568,10 +609,10 @@ class RotinaAutomaticaPage(ttk.Frame):
             sys.executable, "balor-svg.py", "mark",
             "-f", svg_file,
             "-o", job_file,
-            "--xoff", str(preset.get("offset_x", "0.0")),
-            "--yoff", str(preset.get("offset_y", "0.0")),
-            "--xscale", str(preset.get("scale", "1.0")),
-            "--yscale", str(preset.get("scale", "1.0")),
+            "--xoff", "0.0",
+            "--yoff", "0.0",
+            "--xscale", "1.0",
+            "--yscale", "1.0",
             "-s", settings_file,
             "--laser-on-delay", "0",
             "--laser-off-delay", "0",
@@ -585,7 +626,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         if os.path.exists("cal_0002.csv"):
             cmd.extend(["-c", "cal_0002.csv"])
 
-        self.safe_log(f"Gerando job {suffix}: {preset_name} / serial {serial}")
+        self.safe_log(f"Gerando job {suffix}: {preset_name} / serial {serial} / pos X={ox:.4f} Y={oy:.4f}")
         job_started_at = time.perf_counter()
         subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         job_elapsed = time.perf_counter() - job_started_at

@@ -84,8 +84,8 @@ class BalorStudioLite:
         self.custom_scene_items = [] 
         # Will hold dicts: {'id', 'file', 'ox', 'oy', 'sx', 'sy', 'rot', 'color', 'visible'}
         self.combined_offsets = {
-            'base_1': [-8.4325, -16.0017],
-            'base_2': [-7.1016, -41.6378]
+            'base_1': [-6.9076, -14.8834],
+            'base_2': [-6.1260, -40.8248]
         }
         self.is_combined_mode = False
         
@@ -832,19 +832,44 @@ class BalorStudioLite:
                 "obj_visibility": {"base_1": True, "base_2": True}
             }
         }
+
+        def merge_defaults(loaded):
+            for key, defaults in default_presets.items():
+                if key not in loaded:
+                    loaded[key] = dict(defaults)
+                    continue
+                if isinstance(loaded[key], dict):
+                    for field, value in defaults.items():
+                        loaded[key].setdefault(field, value)
+            return loaded
+
+        def sync_individual_offsets(presets):
+            combo = presets.get("Arte 1 + 2 (Frontal + Traseira)", {})
+            offsets = combo.get("combined_offsets", {}) if isinstance(combo, dict) else {}
+            pairs = (
+                ("Arte 1 (Serial Banco)", "base_1"),
+                ("Arte 2 (Serial Banco)", "base_2"),
+            )
+            for preset_name, base_name in pairs:
+                if base_name not in offsets:
+                    continue
+                try:
+                    ox, oy = offsets[base_name]
+                except Exception:
+                    continue
+                presets.setdefault(preset_name, {})
+                presets[preset_name]["offset_x"] = f"{float(ox):.4f}"
+                presets[preset_name]["offset_y"] = f"{float(oy):.4f}"
+            return presets
+
         if os.path.exists(self.presets_file):
             try:
-                with open(self.presets_file, 'r') as f:
+                with open(self.presets_file, 'r', encoding='utf-8') as f:
                     loaded = json.load(f)
-                    # Merge default preset or overwrite "Arte 1" / "Arte 2" to match current specs
-                    for k, v in default_presets.items():
-                        if k not in loaded or k in ("Arte 1 (Serial Banco)", "Arte 2 (Serial Banco)", "Arte 1 + 2 (Frontal + Traseira)"):
-                            loaded[k] = v
-                    return loaded
-            except:
+                return sync_individual_offsets(merge_defaults(loaded))
+            except Exception:
                 pass
-        return default_presets
-
+        return sync_individual_offsets(default_presets)
     def load_selected_preset(self):
         name = self.preset_combo.get()
         if name in self.presets:
@@ -911,6 +936,18 @@ class BalorStudioLite:
             
             # Force UI workspace refresh
             self.update_content_mode(from_btn=True)
+            if getattr(self, 'is_combined_mode', False):
+                self.selected_obj.set("base_1")
+                try:
+                    self.tree_objs.selection_set("base_1")
+                    self.tree_objs.focus("base_1")
+                except Exception:
+                    pass
+                self.sync_selected_object_controls()
+                try:
+                    self.preview_manager.draw_selection()
+                except Exception:
+                    pass
 
     def save_current_preset(self):
         name = tk.simpledialog.askstring("Novo Preset", "Nome do Preset:")
