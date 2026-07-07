@@ -352,10 +352,18 @@ class PLCPanelApp:
     def _show_page(self, page):
         if self.current_page is page:
             return
+        self._sync_global_nav(page)
         if self.current_page is not None:
             self.current_page.pack_forget()
         self.current_page = page
         self.current_page.pack(fill="both", expand=True)
+
+    def _sync_global_nav(self, page):
+        if page is self.dashboard_page:
+            self.nav_frame.pack_forget()
+            return
+        if not self.nav_frame.winfo_ismapped():
+            self.nav_frame.pack(fill="x", padx=10, pady=(8, 0), before=self.page_container)
 
     def add_action_row(self, name="Nova Ação", mem="", tgt="CLP"):
         uid = f"act_{self.action_counter}"
