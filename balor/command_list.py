@@ -611,6 +611,8 @@ class CommandList(CommandSource):
         self._laser_off_delay = None
         self._poly_delay = None
         self._mark_end_delay = None
+        self._laser_control_on_wait = 0x0320
+        self._laser_control_off_wait = 0x001E
         if self._sender:
             self._write_port = self._sender._write_port
         else:
@@ -643,6 +645,8 @@ class CommandList(CommandSource):
         self._laser_off_delay = None
         self._poly_delay = None
         self._mark_end_delay = None
+        self._laser_control_on_wait = 0x0320
+        self._laser_control_off_wait = 0x001E
         if self._sender:
             self._write_port = self._sender._write_port
         else:
@@ -806,9 +810,9 @@ class CommandList(CommandSource):
         # EzCAD lets you configure them.
         if control:
             self.append(OpLaserControl(0x0001))
-            self.set_mark_end_delay(0x0320)
+            self.set_mark_end_delay(self._laser_control_on_wait)
         else:
-            self.set_mark_end_delay(0x001E)
+            self.set_mark_end_delay(self._laser_control_off_wait)
             self.append(OpLaserControl(0x0000))
 
     def set_travel_speed(self, speed):
@@ -885,6 +889,13 @@ class CommandList(CommandSource):
         self.ready()
         self._mark_end_delay = delay
         self.append(OpSetMarkEndDelay(delay))
+
+    def set_laser_control_delays(self, on_wait_us=None, off_wait_us=None):
+        if on_wait_us is not None:
+            self._laser_control_on_wait = max(0, int(round(on_wait_us / 10.0)))
+        if off_wait_us is not None:
+            self._laser_control_off_wait = max(0, int(round(off_wait_us / 10.0)))
+        self._mark_end_delay = None
 
     def mark(self, x, y):
         """

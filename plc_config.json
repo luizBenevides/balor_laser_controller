@@ -1,0 +1,50 @@
+{
+    "ip_clp": "192.168.1.5",
+    "port_clp": "502",
+    "ip_robo": "192.168.1.8",
+    "port_robo": "502",
+    "actions": [
+        {
+            "name": "ACIONAR SENSOR - MANUAL",
+            "mem": "80",
+            "tgt": "CLP"
+        },
+        {
+            "name": "GIRAR 1 VEZ",
+            "mem": "71",
+            "tgt": "CLP"
+        },
+        {
+            "name": "VOLTAR GIRO",
+            "mem": "72",
+            "tgt": "CLP"
+        },
+        {
+            "name": "NG",
+            "mem": "73",
+            "tgt": "CLP"
+        },
+        {
+            "name": "OK",
+            "mem": "74",
+            "tgt": "CLP"
+        }
+    ],
+    "statuses": [
+        {
+            "name": "SENSOR ESTEIRA",
+            "mem": "70",
+            "tgt": "CLP"
+        },
+        {
+            "name": "DO0 ROBO - ROTINA",
+            "mem": "90",
+            "tgt": "CLP"
+        },
+        {
+            "name": "GIRAR PE\u00c7A",
+            "mem": "91",
+            "tgt": "CLP"
+        }
+    ]
+}

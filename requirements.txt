@@ -1,0 +1,14 @@
+numpy==2.2.6
+scipy==1.16.3
+Pillow==11.3.0
+opencv-python==4.12.0.88
+pyusb==1.3.1
+libusb-package==1.0.26.3
+svgpathtools==1.7.2
+python-barcode==0.16.1
+pypdf==6.4.0
+gcodeparser==0.3.0
+psycopg2-binary==2.9.11
+python-dotenv==1.2.1
+matplotlib==3.10.8
+pyModbusTCP==0.3.0

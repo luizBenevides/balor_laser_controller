@@ -18,7 +18,7 @@ class Cal:
             return
 
         calfile = [h.split() for h in open(cal_file, 'r').readlines()]
-        mcal = np.asarray([(float(h[0]), float(h[1])) for h in calfile])
+        mcal = np.asarray([(float(h[0]) / 1.45, float(h[1]) / 1.45) for h in calfile])
         gcal = np.asarray([(int(h[4],16), int(h[5],16)) for h in calfile])
 
         mm_x, mm_y, g_x, g_y = mcal[:,0], mcal[:,1], gcal[:,0], gcal[:,1]
@@ -50,7 +50,7 @@ class Cal:
             # Identity transform or simple scaling if needed
             # Galvo units are typically 0-65535, center at 32768 (0x8000)
             return int(max(0, min(65535, x))), int(max(0, min(65535, y)))
-        rv =  self.interpolator([(y,x)])[0]
+        rv =  self.interpolator([(x,y)])[0]
         # Clamp to 16-bit range to avoid parameter overflow
         rv_y = int(round(rv[1]))
         rv_x = int(round(rv[0]))
