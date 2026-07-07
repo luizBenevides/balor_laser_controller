@@ -699,6 +699,8 @@ class RotinaAutomaticaPage(ttk.Frame):
             except Exception:
                 pass
         self.camera_sock = None
+        if hasattr(self.app, "camera_connected"):
+            self.app.camera_connected = False
 
     def camera_connect(self):
         if self.camera_is_connected():
@@ -710,6 +712,8 @@ class RotinaAutomaticaPage(ttk.Frame):
             sock.settimeout(KEYENCE_TIMEOUT_S)
             sock.connect((KEYENCE_IP, KEYENCE_PORT))
             self.camera_sock = sock
+            if hasattr(self.app, "camera_connected"):
+                self.app.camera_connected = True
             self.safe_log("Camera: conectada.")
             return True
         except Exception as exc:

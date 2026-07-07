@@ -353,7 +353,10 @@ class DashboardPage(tk.Frame):
         clp_ok = bool(getattr(self.app, "dev_clp", None) and self.app.dev_clp.is_connected)
         auto_page = getattr(self.app, "auto_page", None)
         laser_ok = bool(getattr(auto_page, "last_laser_ok", False))
-        self.set_led(self.led_camera, self.camera_connected)
+        camera_ok = bool(getattr(self.app, "camera_connected", self.camera_connected))
+        if auto_page and hasattr(auto_page, "camera_is_connected"):
+            camera_ok = camera_ok or bool(auto_page.camera_is_connected())
+        self.set_led(self.led_camera, camera_ok)
         self.set_led(self.led_clp, clp_ok)
         self.set_led(self.led_laser, laser_ok)
         self.after(1000, self.refresh_status_loop)

@@ -163,7 +163,8 @@ class PLCPanelApp:
         self.dev_robo = None
         self.polling_active = False
         self.current_page = None
-
+
+        self.camera_connected = False
         # Variáveis Conexão
         self.var_ip_clp = tk.StringVar(value=self.config_data.get("ip_clp", "192.168.1.5"))
         self.var_port_clp = tk.StringVar(value=self.config_data.get("port_clp", "502"))
@@ -184,7 +185,8 @@ class PLCPanelApp:
 
     def on_close(self):
         self.polling_active = False
-        self.current_page = None
+        self.current_page = None
+        self.camera_connected = False
         if self.dev_clp:
             self.dev_clp.disconnect()
         if self.dev_robo:
