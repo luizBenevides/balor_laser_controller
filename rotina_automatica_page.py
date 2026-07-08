@@ -20,11 +20,11 @@ AUTO_PRESET_ARTE_1 = "Arte 1 (Serial Banco)"
 AUTO_PRESET_ARTE_2 = "Arte 2 (Serial Banco)"
 KEYENCE_IP = "192.168.1.29"
 KEYENCE_PORT = 8500
-KEYENCE_TIMEOUT_S = 10
+KEYENCE_TIMEOUT_S = 5
 KEYENCE_RECV_CHUNK = 1024
 KEYENCE_IDLE_GRACE_S = 0.25
 KEYENCE_TRIGGER_CMD = b"TRG\r"
-CAMERA_AFTER_MARK_DELAY_S = 7.0
+CAMERA_AFTER_MARK_DELAY_S = 2.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -44,10 +44,10 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_test_serial = tk.StringVar(value="4313110010")
         self.var_preset_arte1 = tk.StringVar(value=AUTO_PRESET_ARTE_1)
         self.var_preset_arte2 = tk.StringVar(value=AUTO_PRESET_ARTE_2)
-        self.var_pulse_ms = tk.StringVar(value="1500")
-        self.var_after_m70_s = tk.StringVar(value="8.0") #espera do robo deixar a peça no molde
-        self.var_after_rotate_s = tk.StringVar(value="4.0")
-        self.var_after_return_s = tk.StringVar(value="1.0")
+        self.var_pulse_ms = tk.StringVar(value="1100")
+        self.var_after_m70_s = tk.StringVar(value="1.0") #espera do robo deixar a peça no molde
+        self.var_after_rotate_s = tk.StringVar(value="1.5")
+        self.var_after_return_s = tk.StringVar(value="1.5")
         self.var_robot_routines_started = tk.BooleanVar(value=False)
         self.var_auto_flow_enabled = tk.BooleanVar(value=False)
         self.var_require_m90_ready = tk.BooleanVar(value=True)
