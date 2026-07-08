@@ -25,6 +25,8 @@ KEYENCE_RECV_CHUNK = 1024
 KEYENCE_IDLE_GRACE_S = 0.25
 KEYENCE_TRIGGER_CMD = b"TRG\r"
 CAMERA_AFTER_MARK_DELAY_S = 2.0
+AUTO_MEM_POLL_FAST_S = 0.05
+AUTO_MEM_WAIT_LOG_EVERY_S = 2.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -381,6 +383,32 @@ class RotinaAutomaticaPage(ttk.Frame):
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
 
+    def wait_mem_state(self, mem, expected_true, label, poll_s=AUTO_MEM_POLL_FAST_S):
+        last_log = 0.0
+        last_value = "---"
+        target = "TRUE" if expected_true else "FALSE"
+        while self.running:
+            try:
+                last_value = self.read_mem(mem)
+                if self.is_true_value(last_value) == expected_true:
+                    self.safe_log(f"{label}: M{mem} ficou {target} (valor={last_value}).")
+                    return last_value
+            except Exception as exc:
+                last_value = f"erro: {exc}"
+
+            now = time.monotonic()
+            if now - last_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
+                self.safe_log(f"{label}: aguardando M{mem} ficar {target}. Ultima leitura={last_value}")
+                last_log = now
+            time.sleep(poll_s)
+        return None
+
+    def wait_mem_true(self, mem, label):
+        return self.wait_mem_state(mem, True, label)
+
+    def wait_mem_false(self, mem, label):
+        return self.wait_mem_state(mem, False, label)
+
     def manual_read(self, mem):
         self.run_task(lambda: self.safe_log(f"M{mem} = {self.read_mem(mem)}"))
 
@@ -443,24 +471,17 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.prepare_cycle_serial()
                 prebuild = self.start_prebuild_jobs()
 
-                self.set_status("Aguardando M70 peça no ponto...")
-                while self.running:
-                    if self.is_true_value(self.read_mem(AUTO_MEM_PECA_NO_PONTO)):
-                        break
-                    time.sleep(0.5)
-                if not self.running:
+                self.set_status("Aguardando M70 peca no ponto...")
+                m70 = self.wait_mem_true(AUTO_MEM_PECA_NO_PONTO, "M70 peca no ponto")
+                if not self.running or m70 is None:
                     break
 
                 m90 = self.read_mem(AUTO_MEM_STATUS_ROTINA)
                 self.safe_log(f"M70 ativo. M90 CLP = {m90}")
                 if self.var_require_m90_ready.get() and not self.is_true_value(m90):
                     self.safe_log("M90 está FALSE; aguardando permissivo M90 no CLP.")
-                    while self.running:
-                        m90 = self.read_mem(AUTO_MEM_STATUS_ROTINA)
-                        if self.is_true_value(m90):
-                            break
-                        time.sleep(0.5)
-                    if not self.running:
+                    m90 = self.wait_mem_true(AUTO_MEM_STATUS_ROTINA, "M90 permissivo CLP")
+                    if not self.running or m90 is None:
                         break
                 wait_m70_s = max(float(self.var_after_m70_s.get()), 0.0)
                 self.set_status("Aguardando robô colocar peça no molde...")
@@ -493,8 +514,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.finish_cycle_serial()
 
                 self.set_status("Aguardando M70 desligar para novo ciclo...")
-                while self.running and self.is_true_value(self.read_mem(AUTO_MEM_PECA_NO_PONTO)):
-                    time.sleep(0.5)
+                self.wait_mem_false(AUTO_MEM_PECA_NO_PONTO, "M70 liberacao novo ciclo")
         except Exception as exc:
             self.safe_log(f"Erro na rotina: {exc}")
             self.set_status("Erro")
