@@ -25,6 +25,8 @@ KEYENCE_RECV_CHUNK = 1024
 KEYENCE_IDLE_GRACE_S = 0.25
 KEYENCE_TRIGGER_CMD = b"TRG\r"
 CAMERA_AFTER_MARK_DELAY_S = 2.0
+AUTO_MEM_POLL_FAST_S = 0.05
+AUTO_MEM_WAIT_LOG_EVERY_S = 2.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -39,6 +41,11 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.current_record = None
         self.last_laser_ok = False
         self.camera_sock = None
+        self.modbus_lock = threading.RLock()
+        self.m70_lock = threading.Lock()
+        self.m70_latched = False
+        self.m70_last_state = None
+        self.m70_monitor_thread = None
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -350,14 +357,16 @@ class RotinaAutomaticaPage(ttk.Frame):
         return dev
 
     def read_mem(self, mem):
-        ok, value = self.require_device().send_read(mem)
+        with self.modbus_lock:
+            ok, value = self.require_device().send_read(mem)
         if not ok:
             raise RuntimeError(f"Falha ao ler M{mem}: {value}")
         return value
 
     def write_mem(self, mem, value):
         self.assert_robot_routines_started()
-        ok, msg = self.require_device().send_write(mem, value)
+        with self.modbus_lock:
+            ok, msg = self.require_device().send_write(mem, value)
         if not ok:
             raise RuntimeError(f"Falha ao escrever M{mem}: {msg}")
 
@@ -378,8 +387,94 @@ class RotinaAutomaticaPage(ttk.Frame):
         time.sleep(pulse_s)
         self.write_mem(mem, False)
         self.safe_log(f"{label}: M{mem} desligado")
+
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
+
+    def wait_mem_state(self, mem, expected_true, label, poll_s=AUTO_MEM_POLL_FAST_S):
+        last_log = 0.0
+        last_value = "---"
+        target = "TRUE" if expected_true else "FALSE"
+        while self.running:
+            try:
+                last_value = self.read_mem(mem)
+                if self.is_true_value(last_value) == expected_true:
+                    self.safe_log(f"{label}: M{mem} ficou {target} (valor={last_value}).")
+                    return last_value
+            except Exception as exc:
+                last_value = f"erro: {exc}"
+
+            now = time.monotonic()
+            if now - last_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
+                self.safe_log(f"{label}: aguardando M{mem} ficar {target}. Ultima leitura={last_value}")
+                last_log = now
+            time.sleep(poll_s)
+        return None
+
+    def wait_mem_true(self, mem, label):
+        return self.wait_mem_state(mem, True, label)
+
+    def wait_mem_false(self, mem, label):
+        return self.wait_mem_state(mem, False, label)
+
+    def reset_m70_latch(self):
+        with self.m70_lock:
+            self.m70_latched = False
+            self.m70_last_state = None
+
+    def start_m70_monitor(self):
+        if self.m70_monitor_thread and self.m70_monitor_thread.is_alive():
+            return
+        self.m70_monitor_thread = threading.Thread(target=self.m70_monitor_loop, daemon=True)
+        self.m70_monitor_thread.start()
+
+    def m70_monitor_loop(self):
+        last_error_log = 0.0
+        while self.running:
+            try:
+                value = self.read_mem(AUTO_MEM_PECA_NO_PONTO)
+                current = self.is_true_value(value)
+                with self.m70_lock:
+                    previous = self.m70_last_state
+                    if current and previous is not True:
+                        self.m70_latched = True
+                        self.safe_log(f"M70 monitor: borda TRUE capturada (valor={value}).")
+                    self.m70_last_state = current
+            except Exception as exc:
+                now = time.monotonic()
+                if now - last_error_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
+                    self.safe_log(f"M70 monitor: erro lendo M70 ({exc})")
+                    last_error_log = now
+            time.sleep(AUTO_MEM_POLL_FAST_S)
+
+    def consume_m70_latch(self):
+        with self.m70_lock:
+            if self.m70_latched:
+                self.m70_latched = False
+                return True
+        return False
+
+    def wait_m70_piece_ready(self):
+        last_log = 0.0
+        last_value = "---"
+        while self.running:
+            if self.consume_m70_latch():
+                self.safe_log("M70 peca no ponto: usando evento capturado pelo monitor.")
+                return True
+            try:
+                last_value = self.read_mem(AUTO_MEM_PECA_NO_PONTO)
+                if self.is_true_value(last_value):
+                    self.safe_log(f"M70 peca no ponto: M70 ficou TRUE (valor={last_value}).")
+                    return last_value
+            except Exception as exc:
+                last_value = f"erro: {exc}"
+
+            now = time.monotonic()
+            if now - last_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
+                self.safe_log(f"M70 peca no ponto: aguardando M70 ficar TRUE. Ultima leitura={last_value}")
+                last_log = now
+            time.sleep(AUTO_MEM_POLL_FAST_S)
+        return None
 
     def manual_read(self, mem):
         self.run_task(lambda: self.safe_log(f"M{mem} = {self.read_mem(mem)}"))
@@ -426,6 +521,8 @@ class RotinaAutomaticaPage(ttk.Frame):
         if not messagebox.askyesno("Rotina Automática", "Iniciar rotina automática com gravação real das duas artes?"):
             return
         self.running = True
+        self.reset_m70_latch()
+        self.start_m70_monitor()
         self.btn_start.config(state="disabled")
         self.worker_thread = threading.Thread(target=self.auto_loop, daemon=True)
         self.worker_thread.start()
@@ -443,24 +540,17 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.prepare_cycle_serial()
                 prebuild = self.start_prebuild_jobs()
 
-                self.set_status("Aguardando M70 peça no ponto...")
-                while self.running:
-                    if self.is_true_value(self.read_mem(AUTO_MEM_PECA_NO_PONTO)):
-                        break
-                    time.sleep(0.5)
-                if not self.running:
+                self.set_status("Aguardando M70 peca no ponto...")
+                m70 = self.wait_m70_piece_ready()
+                if not self.running or m70 is None:
                     break
 
                 m90 = self.read_mem(AUTO_MEM_STATUS_ROTINA)
                 self.safe_log(f"M70 ativo. M90 CLP = {m90}")
                 if self.var_require_m90_ready.get() and not self.is_true_value(m90):
                     self.safe_log("M90 está FALSE; aguardando permissivo M90 no CLP.")
-                    while self.running:
-                        m90 = self.read_mem(AUTO_MEM_STATUS_ROTINA)
-                        if self.is_true_value(m90):
-                            break
-                        time.sleep(0.5)
-                    if not self.running:
+                    m90 = self.wait_mem_true(AUTO_MEM_STATUS_ROTINA, "M90 permissivo CLP")
+                    if not self.running or m90 is None:
                         break
                 wait_m70_s = max(float(self.var_after_m70_s.get()), 0.0)
                 self.set_status("Aguardando robô colocar peça no molde...")
@@ -493,8 +583,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.finish_cycle_serial()
 
                 self.set_status("Aguardando M70 desligar para novo ciclo...")
-                while self.running and self.is_true_value(self.read_mem(AUTO_MEM_PECA_NO_PONTO)):
-                    time.sleep(0.5)
+                self.wait_mem_false(AUTO_MEM_PECA_NO_PONTO, "M70 liberacao novo ciclo")
         except Exception as exc:
             self.safe_log(f"Erro na rotina: {exc}")
             self.set_status("Erro")
