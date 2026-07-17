@@ -407,6 +407,12 @@ class RotinaAutomaticaPage(ttk.Frame):
     def pulse_command_mem(self, mem, label):
         pulse_s = max(float(self.var_pulse_ms.get()) / 1000.0, 0.2)
         self.log_clp_snapshot(f"antes pulso M{mem} - {label}")
+        current = self.read_mem_for_log(mem)
+        if self.is_true_value(current):
+            self.safe_log(f"{label}: M{mem} ja estava TRUE; desligando antes para gerar borda nova.")
+            self.write_mem(mem, False)
+            time.sleep(0.2)
+            self.log_clp_snapshot(f"M{mem} pre-limpo antes do pulso - {label}")
         self.safe_log(f"{label}: ligando M{mem} por {pulse_s:.2f}s")
         self.write_mem(mem, True)
         self.log_clp_snapshot(f"M{mem} ligado - {label}")
@@ -414,6 +420,22 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.write_mem(mem, False)
         self.safe_log(f"{label}: M{mem} desligado")
         self.log_clp_snapshot(f"depois pulso M{mem} - {label}")
+
+    def clear_cycle_signals(self, label):
+        self.log_clp_snapshot(f"antes limpeza sinais - {label}")
+        for mem, name in (
+            (AUTO_MEM_GRAVACAO_INSPECAO_1, "M1510 fim lado 1"),
+            (AUTO_MEM_GRAVACAO_INSPECAO_2, "M1511 fim lado 2"),
+            (AUTO_MEM_RESULT_OK, "M1115 OK"),
+            (AUTO_MEM_RESULT_NG, "M1116 NG"),
+        ):
+            current = self.read_mem_for_log(mem)
+            if self.is_true_value(current):
+                self.safe_log(f"[LIMPEZA] {name} estava TRUE; escrevendo FALSE antes de iniciar ciclo.")
+                self.write_mem(mem, False)
+            else:
+                self.safe_log(f"[LIMPEZA] {name} ja estava FALSE ({current}).")
+        self.log_clp_snapshot(f"depois limpeza sinais - {label}")
 
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
@@ -564,6 +586,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.set_status("Preparando serial e jobs antes do M1500...")
                 serial = self.prepare_cycle_serial()
                 self.safe_log(f"[CICLO] Novo ciclo preparado para serial={serial}")
+                self.clear_cycle_signals("inicio ciclo")
                 self.log_clp_snapshot("inicio ciclo antes prebuild")
                 prebuild = self.start_prebuild_jobs()
 
