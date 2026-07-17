@@ -10,12 +10,18 @@ from tkinter import ttk, messagebox
 import db_module
 
 PRESETS_FILE = "laser_presets.json"
-AUTO_MEM_PECA_NO_PONTO = "70"
-AUTO_MEM_STATUS_ROTINA = "90"
-AUTO_MEM_GIRA_PECA = "71"
-AUTO_MEM_VOLTA_GIRO = "72"
-AUTO_MEM_NG = "73"
-AUTO_MEM_OK = "74"
+AUTO_MEM_PRONTO_GRAVACAO = "1500"
+AUTO_MEM_GRAVACAO_INSPECAO_1 = "1510"
+AUTO_MEM_GRAVACAO_INSPECAO_2 = "1511"
+AUTO_MEM_RESULT_OK = "1115"
+AUTO_MEM_RESULT_NG = "1116"
+AUTO_MEM_SENSOR_ESTEIRA = "1110"
+AUTO_MEM_PECA_NO_PONTO = AUTO_MEM_PRONTO_GRAVACAO
+AUTO_MEM_STATUS_ROTINA = AUTO_MEM_SENSOR_ESTEIRA
+AUTO_MEM_GIRA_PECA = AUTO_MEM_GRAVACAO_INSPECAO_1
+AUTO_MEM_VOLTA_GIRO = AUTO_MEM_GRAVACAO_INSPECAO_2
+AUTO_MEM_NG = AUTO_MEM_RESULT_NG
+AUTO_MEM_OK = AUTO_MEM_RESULT_OK
 AUTO_PRESET_ARTE_1 = "Arte 1 (Serial Banco)"
 AUTO_PRESET_ARTE_2 = "Arte 2 (Serial Banco)"
 KEYENCE_IP = "192.168.1.29"
@@ -62,10 +68,10 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_test_mode = tk.BooleanVar(value=False)
         self.var_db_status = tk.StringVar(value="Auto-Sync banco parado")
         self.var_status = tk.StringVar(value="Modo preparação")
-        self.var_m80 = tk.StringVar(value="---")
-        self.var_m90 = tk.StringVar(value="---")
-        self.var_m73 = tk.StringVar(value="---")
-        self.var_m74 = tk.StringVar(value="---")
+        self.var_m1500 = tk.StringVar(value="---")
+        self.var_m1110 = tk.StringVar(value="---")
+        self.var_m1115 = tk.StringVar(value="---")
+        self.var_m1116 = tk.StringVar(value="---")
 
         self.build_ui()
         self.refresh_status_loop()
@@ -91,17 +97,17 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.combo_arte2.grid(row=1, column=3, sticky="ew", padx=5, pady=4)
         ttk.Button(top, text="Recarregar Presets", command=self.reload_presets).grid(row=1, column=4, sticky="ew", padx=5, pady=4)
 
-        ttk.Label(top, text="Pulso M71/M72 (ms):").grid(row=2, column=0, sticky="w", padx=5, pady=4)
+        ttk.Label(top, text="Pulso sinais CLP (ms):").grid(row=2, column=0, sticky="w", padx=5, pady=4)
         ttk.Entry(top, textvariable=self.var_pulse_ms, width=8).grid(row=2, column=1, sticky="w", padx=5, pady=4)
-        ttk.Label(top, text="Espera após M70 (s):").grid(row=2, column=2, sticky="w", padx=5, pady=4)
+        ttk.Label(top, text="Espera apos M1500 (s):").grid(row=2, column=2, sticky="w", padx=5, pady=4)
         ttk.Entry(top, textvariable=self.var_after_m70_s, width=8).grid(row=2, column=3, sticky="w", padx=5, pady=4)
-        ttk.Label(top, text="Espera após M71 (s):").grid(row=2, column=4, sticky="w", padx=5, pady=4)
+        ttk.Label(top, text="Espera apos M1510 (s):").grid(row=2, column=4, sticky="w", padx=5, pady=4)
         ttk.Entry(top, textvariable=self.var_after_rotate_s, width=8).grid(row=2, column=5, sticky="w", padx=5, pady=4)
-        ttk.Label(top, text="Espera após M72 (s):").grid(row=2, column=6, sticky="w", padx=5, pady=4)
+        ttk.Label(top, text="Espera apos M1511 (s):").grid(row=2, column=6, sticky="w", padx=5, pady=4)
         ttk.Entry(top, textvariable=self.var_after_return_s, width=8).grid(row=2, column=7, sticky="w", padx=5, pady=4)
 
-        ttk.Checkbutton(top, text="Forçar liberação manual", variable=self.var_robot_routines_started).grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=4)
-        ttk.Checkbutton(top, text="Exigir M90 TRUE no CLP", variable=self.var_require_m90_ready).grid(row=3, column=2, columnspan=2, sticky="w", padx=5, pady=4)
+        ttk.Checkbutton(top, text="Escrita manual liberada", variable=self.var_robot_routines_started).grid(row=3, column=0, columnspan=2, sticky="w", padx=5, pady=4)
+        ttk.Checkbutton(top, text="Fluxo por M1500 do CLP", variable=self.var_require_m90_ready).grid(row=3, column=2, columnspan=2, sticky="w", padx=5, pady=4)
         ttk.Checkbutton(top, text="Liberar fluxo automático após ajustar artes", variable=self.var_auto_flow_enabled, command=self.update_auto_button_state).grid(row=3, column=4, sticky="w", padx=5, pady=4)
         ttk.Button(top, text="Abrir Balor GUI", command=self.open_balor_gui).grid(row=3, column=5, sticky="ew", padx=5, pady=4)
 
@@ -115,7 +121,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         flow.pack(fill="x", padx=10, pady=5)
         ttk.Label(
             flow,
-            text="M90 é status/permissivo lido no CLP. A próxima peça só entra depois do M70 cair e subir novamente."
+            text="Novo fluxo: aguarda M1500 TRUE para gravar; avisa M1510 apos Arte 1; avisa M1511 apos Arte 2; libera M1115 OK ou M1116 NG."
         ).pack(anchor="w")
         buttons = ttk.Frame(flow)
         buttons.pack(fill="x", pady=8)
@@ -130,23 +136,23 @@ class RotinaAutomaticaPage(ttk.Frame):
         manual.pack(fill="x", padx=10, pady=5)
         for col in range(6):
             manual.columnconfigure(col, weight=1)
-        self._manual_button(manual, 0, 0, "Ler M70\nPeça no ponto", lambda: self.manual_read(AUTO_MEM_PECA_NO_PONTO))
-        self._manual_button(manual, 0, 1, "Ler M90\nRotina", lambda: self.manual_read(AUTO_MEM_STATUS_ROTINA))
-        self._manual_button(manual, 0, 2, "Pulsa M71\nGira peça", lambda: self.manual_pulse(AUTO_MEM_GIRA_PECA))
-        self._manual_button(manual, 0, 3, "Pulsa M72\nVolta giro", lambda: self.manual_pulse(AUTO_MEM_VOLTA_GIRO))
-        self._manual_button(manual, 0, 4, "Liga M73\nNG", lambda: self.manual_write(AUTO_MEM_NG, True))
-        self._manual_button(manual, 0, 5, "Liga M74\nOK", lambda: self.manual_write(AUTO_MEM_OK, True))
-        self._manual_button(manual, 1, 0, "Desliga M73", lambda: self.manual_write(AUTO_MEM_NG, False))
-        self._manual_button(manual, 1, 1, "Desliga M74", lambda: self.manual_write(AUTO_MEM_OK, False))
+        self._manual_button(manual, 0, 0, "Ler M1500\nPronto gravar", lambda: self.manual_read(AUTO_MEM_PRONTO_GRAVACAO))
+        self._manual_button(manual, 0, 1, "Ler M1110\nSensor esteira", lambda: self.manual_read(AUTO_MEM_SENSOR_ESTEIRA))
+        self._manual_button(manual, 0, 2, "Pulsa M1510\nFim lado 1", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_1))
+        self._manual_button(manual, 0, 3, "Pulsa M1511\nFim lado 2", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_2))
+        self._manual_button(manual, 0, 4, "Liga M1116\nNG", lambda: self.manual_write(AUTO_MEM_RESULT_NG, True))
+        self._manual_button(manual, 0, 5, "Liga M1115\nOK", lambda: self.manual_write(AUTO_MEM_RESULT_OK, True))
+        self._manual_button(manual, 1, 0, "Desliga M1116", lambda: self.manual_write(AUTO_MEM_RESULT_NG, False))
+        self._manual_button(manual, 1, 1, "Desliga M1115", lambda: self.manual_write(AUTO_MEM_RESULT_OK, False))
         self._manual_button(manual, 1, 2, "Abrir\nBalor GUI", self.open_balor_gui)
         self._manual_button(manual, 1, 3, "Recarregar\nPresets", self.reload_presets)
 
         monitor = ttk.LabelFrame(self, text="Monitoramento", padding=10)
         monitor.pack(fill="x", padx=10, pady=5)
-        self._status_label(monitor, "M70 Peça", self.var_m80, 0)
-        self._status_label(monitor, "M90 Rotina", self.var_m90, 1)
-        self._status_label(monitor, "M73 NG", self.var_m73, 2)
-        self._status_label(monitor, "M74 OK", self.var_m74, 3)
+        self._status_label(monitor, "M1500 Pronto", self.var_m1500, 0)
+        self._status_label(monitor, "M1110 Esteira", self.var_m1110, 1)
+        self._status_label(monitor, "M1116 NG", self.var_m1116, 2)
+        self._status_label(monitor, "M1115 OK", self.var_m1115, 3)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=10)
         log_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -364,11 +370,29 @@ class RotinaAutomaticaPage(ttk.Frame):
         return value
 
     def write_mem(self, mem, value):
-        self.assert_robot_routines_started()
         with self.modbus_lock:
             ok, msg = self.require_device().send_write(mem, value)
         if not ok:
             raise RuntimeError(f"Falha ao escrever M{mem}: {msg}")
+        self.safe_log(f"WRITE M{mem} = {value} OK")
+
+    def read_mem_for_log(self, mem):
+        try:
+            return self.read_mem(mem)
+        except Exception as exc:
+            return f"ERRO:{exc}"
+
+    def log_clp_snapshot(self, label):
+        values = {
+            "M1500 pronto": self.read_mem_for_log(AUTO_MEM_PRONTO_GRAVACAO),
+            "M1110 esteira": self.read_mem_for_log(AUTO_MEM_SENSOR_ESTEIRA),
+            "M1510 fim lado1": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_1),
+            "M1511 fim lado2": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_2),
+            "M1115 OK": self.read_mem_for_log(AUTO_MEM_RESULT_OK),
+            "M1116 NG": self.read_mem_for_log(AUTO_MEM_RESULT_NG),
+        }
+        snapshot = " | ".join(f"{name}={value}" for name, value in values.items())
+        self.safe_log(f"[CLP-SNAPSHOT] {label}: {snapshot}")
 
     def pulse_mem(self, mem):
         pulse_s = max(float(self.var_pulse_ms.get()) / 1000.0, 0.05)
@@ -382,11 +406,14 @@ class RotinaAutomaticaPage(ttk.Frame):
 
     def pulse_command_mem(self, mem, label):
         pulse_s = max(float(self.var_pulse_ms.get()) / 1000.0, 0.2)
+        self.log_clp_snapshot(f"antes pulso M{mem} - {label}")
         self.safe_log(f"{label}: ligando M{mem} por {pulse_s:.2f}s")
         self.write_mem(mem, True)
+        self.log_clp_snapshot(f"M{mem} ligado - {label}")
         time.sleep(pulse_s)
         self.write_mem(mem, False)
         self.safe_log(f"{label}: M{mem} desligado")
+        self.log_clp_snapshot(f"depois pulso M{mem} - {label}")
 
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
@@ -438,12 +465,12 @@ class RotinaAutomaticaPage(ttk.Frame):
                     previous = self.m70_last_state
                     if current and previous is not True:
                         self.m70_latched = True
-                        self.safe_log(f"M70 monitor: borda TRUE capturada (valor={value}).")
+                        self.safe_log(f"M1500 monitor: borda TRUE capturada (valor={value}).")
                     self.m70_last_state = current
             except Exception as exc:
                 now = time.monotonic()
                 if now - last_error_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
-                    self.safe_log(f"M70 monitor: erro lendo M70 ({exc})")
+                    self.safe_log(f"M1500 monitor: erro lendo M1500 ({exc})")
                     last_error_log = now
             time.sleep(AUTO_MEM_POLL_FAST_S)
 
@@ -459,19 +486,19 @@ class RotinaAutomaticaPage(ttk.Frame):
         last_value = "---"
         while self.running:
             if self.consume_m70_latch():
-                self.safe_log("M70 peca no ponto: usando evento capturado pelo monitor.")
+                self.safe_log("M1500 pronto gravacao: usando evento capturado pelo monitor.")
                 return True
             try:
                 last_value = self.read_mem(AUTO_MEM_PECA_NO_PONTO)
                 if self.is_true_value(last_value):
-                    self.safe_log(f"M70 peca no ponto: M70 ficou TRUE (valor={last_value}).")
+                    self.safe_log(f"M1500 pronto gravacao: M1500 ficou TRUE (valor={last_value}).")
                     return last_value
             except Exception as exc:
                 last_value = f"erro: {exc}"
 
             now = time.monotonic()
             if now - last_log >= AUTO_MEM_WAIT_LOG_EVERY_S:
-                self.safe_log(f"M70 peca no ponto: aguardando M70 ficar TRUE. Ultima leitura={last_value}")
+                self.safe_log(f"M1500 pronto gravacao: aguardando M1500 ficar TRUE. Ultima leitura={last_value}")
                 last_log = now
             time.sleep(AUTO_MEM_POLL_FAST_S)
         return None
@@ -521,8 +548,6 @@ class RotinaAutomaticaPage(ttk.Frame):
         if not messagebox.askyesno("Rotina Automática", "Iniciar rotina automática com gravação real das duas artes?"):
             return
         self.running = True
-        self.reset_m70_latch()
-        self.start_m70_monitor()
         self.btn_start.config(state="disabled")
         self.worker_thread = threading.Thread(target=self.auto_loop, daemon=True)
         self.worker_thread.start()
@@ -533,57 +558,94 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.set_status("Parando...")
 
     def auto_loop(self):
-        self.safe_log("Rotina automática iniciada.")
+        self.safe_log("Rotina automatica iniciada no novo fluxo CLP (M1500/M1510/M1511/M1115/M1116).")
         try:
             while self.running:
-                self.set_status("Preparando serial e jobs antes do M70...")
-                self.prepare_cycle_serial()
+                self.set_status("Preparando serial e jobs antes do M1500...")
+                serial = self.prepare_cycle_serial()
+                self.safe_log(f"[CICLO] Novo ciclo preparado para serial={serial}")
+                self.log_clp_snapshot("inicio ciclo antes prebuild")
                 prebuild = self.start_prebuild_jobs()
 
-                self.set_status("Aguardando M70 peca no ponto...")
-                m70 = self.wait_m70_piece_ready()
-                if not self.running or m70 is None:
+                self.log_clp_snapshot("antes de aguardar M1500 Arte 1")
+                self.set_status("Aguardando M1500 pronto para Arte 1...")
+                ready_1 = self.wait_mem_true(AUTO_MEM_PRONTO_GRAVACAO, "Pronto gravacao Arte 1")
+                if not self.running or ready_1 is None:
                     break
+                self.safe_log(f"[HANDSHAKE] M1500 TRUE recebido para Arte 1: valor={ready_1}")
+                self.log_clp_snapshot("M1500 TRUE Arte 1")
 
-                m90 = self.read_mem(AUTO_MEM_STATUS_ROTINA)
-                self.safe_log(f"M70 ativo. M90 CLP = {m90}")
-                if self.var_require_m90_ready.get() and not self.is_true_value(m90):
-                    self.safe_log("M90 está FALSE; aguardando permissivo M90 no CLP.")
-                    m90 = self.wait_mem_true(AUTO_MEM_STATUS_ROTINA, "M90 permissivo CLP")
-                    if not self.running or m90 is None:
-                        break
-                wait_m70_s = max(float(self.var_after_m70_s.get()), 0.0)
-                self.set_status("Aguardando robô colocar peça no molde...")
-                self.safe_log(f"M70 é sensor da esteira; aguardando {wait_m70_s:.2f}s para o robô posicionar no molde antes da Arte 1.")
-                time.sleep(wait_m70_s)
+                wait_ready_s = max(float(self.var_after_m70_s.get()), 0.0)
+                if wait_ready_s:
+                    self.safe_log(f"Aguardando {wait_ready_s:.2f}s apos M1500 antes da Arte 1.")
+                    time.sleep(wait_ready_s)
                 if not self.running:
                     break
 
-                frontal_ok, traseira_ok = self.mark_both_artes(prebuild)
+                frontal_ok = self.mark_one_arte_with_inspection(prebuild, "arte1", "Arte 1")
+                self.safe_log(f"[INSPECAO] Arte 1 resultado={'OK' if frontal_ok else 'NG'}")
+                self.log_clp_snapshot("apos gravacao/inspecao Arte 1 antes M1510")
+
+                self.set_status("Avisando CLP: Arte 1 gravada/inspecionada (M1510)...")
+                self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_1, "Gravacao + inspecao lado 1 concluida")
+
+                after_1510_s = max(float(self.var_after_rotate_s.get()), 0.0)
+                if after_1510_s:
+                    self.safe_log(f"Aguardando {after_1510_s:.2f}s apos M1510.")
+                    time.sleep(after_1510_s)
+
+                self.set_status("Aguardando CLP consumir M1500 para giro...")
+                consumed_1 = self.wait_mem_false(AUTO_MEM_PRONTO_GRAVACAO, "M1500 consumido apos Arte 1")
+                if not self.running:
+                    break
+                self.safe_log(f"[HANDSHAKE] M1500 FALSE apos Arte 1: valor={consumed_1}")
+                self.log_clp_snapshot("M1500 FALSE apos Arte 1")
+
+                self.log_clp_snapshot("antes de aguardar M1500 Arte 2")
+                self.set_status("Aguardando M1500 pronto para Arte 2...")
+                ready_2 = self.wait_mem_true(AUTO_MEM_PRONTO_GRAVACAO, "Pronto gravacao Arte 2")
+                if not self.running or ready_2 is None:
+                    break
+                self.safe_log(f"[HANDSHAKE] M1500 TRUE recebido para Arte 2: valor={ready_2}")
+                self.log_clp_snapshot("M1500 TRUE Arte 2")
+
+                traseira_ok = self.mark_one_arte_with_inspection(prebuild, "arte2", "Arte 2")
+                self.safe_log(f"[INSPECAO] Arte 2 resultado={'OK' if traseira_ok else 'NG'}")
+                self.log_clp_snapshot("apos gravacao/inspecao Arte 2 antes M1511")
+
+                self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511)...")
+                self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_2, "Gravacao + inspecao lado 2 concluida")
+
+                after_1511_s = max(float(self.var_after_return_s.get()), 0.0)
+                if after_1511_s:
+                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos M1511.")
+                    time.sleep(after_1511_s)
+
                 aprovado = frontal_ok and traseira_ok
-
-                self.set_status("Pulsando M72 para voltar giro...")
-                self.pulse_mem(AUTO_MEM_VOLTA_GIRO)
-                time.sleep(max(float(self.var_after_return_s.get()), 0.0))
-
+                self.safe_log(f"[RESULTADO] frontal_ok={frontal_ok} traseira_ok={traseira_ok} aprovado={aprovado}")
+                self.log_clp_snapshot("antes de liberar resultado final")
                 if aprovado:
-                    self.set_status("Liberando M74 OK...")
-                    self.write_mem(AUTO_MEM_OK, True)
-                    self.write_mem(AUTO_MEM_NG, False)
-                    self.safe_log("Ciclo concluido. Inspecoes OK; M74 ligado como aprovado.")
+                    self.set_status("Liberando resultado OK em M1115...")
+                    self.write_mem(AUTO_MEM_RESULT_NG, False)
+                    self.write_mem(AUTO_MEM_RESULT_OK, True)
+                    self.safe_log("Ciclo concluido. Inspecoes OK; M1115 ligado como aprovado.")
                     inspecao = "Aprovado"
                 else:
-                    self.set_status("Liberando M73 NG...")
-                    self.write_mem(AUTO_MEM_OK, False)
-                    self.write_mem(AUTO_MEM_NG, True)
-                    self.safe_log("Ciclo concluido. Uma ou mais inspecoes reprovaram; M73 ligado como NG.")
+                    self.set_status("Liberando resultado NG em M1116...")
+                    self.write_mem(AUTO_MEM_RESULT_OK, False)
+                    self.write_mem(AUTO_MEM_RESULT_NG, True)
+                    self.safe_log("Ciclo concluido. Uma ou mais inspecoes reprovaram; M1116 ligado como NG.")
                     inspecao = "Reprovado"
+
+                self.log_clp_snapshot(f"resultado final liberado {inspecao}")
                 if hasattr(self.app, "add_dashboard_record"):
                     self.app.add_dashboard_record(self.var_serial.get().strip(), frontal_ok, traseira_ok, inspecao)
                 self.finish_cycle_serial()
 
-                self.set_status("Aguardando M70 desligar para novo ciclo...")
-                self.wait_mem_false(AUTO_MEM_PECA_NO_PONTO, "M70 liberacao novo ciclo")
+                self.set_status("Aguardando M1500 desligar para evitar repetir a mesma peca...")
+                final_release = self.wait_mem_false(AUTO_MEM_PRONTO_GRAVACAO, "M1500 liberacao novo ciclo")
+                self.safe_log(f"[HANDSHAKE] M1500 FALSE liberacao novo ciclo: valor={final_release}")
+                self.log_clp_snapshot("fim ciclo pronto para proxima peca")
         except Exception as exc:
             self.safe_log(f"Erro na rotina: {exc}")
             self.set_status("Erro")
@@ -593,7 +655,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             self.after(0, self.update_auto_button_state)
             if self.var_status.get() != "Erro":
                 self.set_status("Parado")
-            self.safe_log("Rotina automática parada.")
+            self.safe_log("Rotina automatica parada.")
 
     def resolve_step_preset(self, selected_name, suffix):
         if selected_name == "Arte 1 + 2 (Frontal + Traseira)":
@@ -619,7 +681,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             finally:
                 ctx["ready"][suffix].set()
 
-        self.safe_log("Pré-gerando jobs arte1 e arte2 enquanto aguarda M70.")
+        self.safe_log("Pre-gerando jobs arte1 e arte2 enquanto aguarda M1500.")
         threading.Thread(target=_build_job, args=("arte1", preset_arte1), daemon=True).start()
         threading.Thread(target=_build_job, args=("arte2", preset_arte2), daemon=True).start()
         return ctx
@@ -633,28 +695,19 @@ class RotinaAutomaticaPage(ttk.Frame):
             raise ctx["errors"][suffix]
         return ctx["jobs"][suffix], ctx["presets"][suffix]
 
+    def mark_one_arte_with_inspection(self, prebuild, suffix, label):
+        commands, preset_name = self.wait_prebuilt_job(prebuild, suffix)
+        self.set_status(f"Gravando {label}...")
+        self.execute_laser_job(commands, preset_name, suffix)
+        self.wait_before_camera_trigger(label)
+        return self.trigger_camera_inspection(label)
+
     def mark_both_artes(self, prebuild=None):
         if prebuild is None:
-            self.set_status("Pré-gerando jobs Arte 1 e Arte 2...")
+            self.set_status("Pre-gerando jobs Arte 1 e Arte 2...")
             prebuild = self.start_prebuild_jobs()
-
-        commands_arte1, preset_arte1 = self.wait_prebuilt_job(prebuild, "arte1")
-        self.set_status("Gravando Arte 1...")
-        self.execute_laser_job(commands_arte1, preset_arte1, "arte1")
-        self.wait_before_camera_trigger("Arte 1")
-        frontal_ok = self.trigger_camera_inspection("Arte 1")
-
-        self.set_status("Acionando M71 para girar peça...")
-        self.pulse_command_mem(AUTO_MEM_GIRA_PECA, "Giro da peça")
-        wait_rotate_s = max(float(self.var_after_rotate_s.get()), 0.0)
-        self.safe_log(f"Aguardando {wait_rotate_s:.2f}s após M71 antes da Arte 2.")
-        time.sleep(wait_rotate_s)
-
-        commands_arte2, preset_arte2 = self.wait_prebuilt_job(prebuild, "arte2")
-        self.set_status("Gravando Arte 2...")
-        self.execute_laser_job(commands_arte2, preset_arte2, "arte2")
-        self.wait_before_camera_trigger("Arte 2")
-        traseira_ok = self.trigger_camera_inspection("Arte 2")
+        frontal_ok = self.mark_one_arte_with_inspection(prebuild, "arte1", "Arte 1")
+        traseira_ok = self.mark_one_arte_with_inspection(prebuild, "arte2", "Arte 2")
         return frontal_ok, traseira_ok
 
     def mark_preset(self, preset_name, suffix):
@@ -885,7 +938,7 @@ class RotinaAutomaticaPage(ttk.Frame):
     def refresh_status_loop(self):
         def _task():
             values = []
-            for mem in (AUTO_MEM_PECA_NO_PONTO, AUTO_MEM_STATUS_ROTINA, AUTO_MEM_NG, AUTO_MEM_OK):
+            for mem in (AUTO_MEM_PRONTO_GRAVACAO, AUTO_MEM_SENSOR_ESTEIRA, AUTO_MEM_RESULT_NG, AUTO_MEM_RESULT_OK):
                 try:
                     values.append(self.read_mem(mem))
                 except Exception:
@@ -894,8 +947,8 @@ class RotinaAutomaticaPage(ttk.Frame):
         threading.Thread(target=_task, daemon=True).start()
 
     def apply_status_values(self, values):
-        self.var_m80.set(values[0])
-        self.var_m90.set(values[1])
-        self.var_m73.set(values[2])
-        self.var_m74.set(values[3])
+        self.var_m1500.set(values[0])
+        self.var_m1110.set(values[1])
+        self.var_m1116.set(values[2])
+        self.var_m1115.set(values[3])
         self.after(1000, self.refresh_status_loop)
