@@ -59,7 +59,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_preset_arte2 = tk.StringVar(value=AUTO_PRESET_ARTE_2)
         self.var_pulse_ms = tk.StringVar(value="1100")
         self.var_after_m70_s = tk.StringVar(value="1.0") #espera do robo deixar a peça no molde
-        self.var_after_rotate_s = tk.StringVar(value="1.5")
+        self.var_after_rotate_s = tk.StringVar(value="1.0")
         self.var_after_return_s = tk.StringVar(value="1.5")
         self.var_robot_routines_started = tk.BooleanVar(value=False)
         self.var_auto_flow_enabled = tk.BooleanVar(value=False)
@@ -421,6 +421,25 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.safe_log(f"{label}: M{mem} desligado")
         self.log_clp_snapshot(f"depois pulso M{mem} - {label}")
 
+    def signal_command_until_ack(self, mem, label, ack_mem, ack_expected_true, ack_label):
+        self.log_clp_snapshot(f"antes sinal M{mem} - {label}")
+        current = self.read_mem_for_log(mem)
+        if self.is_true_value(current):
+            self.safe_log(f"{label}: M{mem} ja estava TRUE; limpando antes de sinalizar.")
+            self.write_mem(mem, False)
+            time.sleep(0.2)
+            self.log_clp_snapshot(f"M{mem} limpo antes do sinal - {label}")
+
+        self.safe_log(f"{label}: mantendo M{mem}=TRUE ate ACK {ack_label}.")
+        self.write_mem(mem, True)
+        self.log_clp_snapshot(f"M{mem} TRUE aguardando ACK - {label}")
+
+        ack_value = self.wait_mem_state(ack_mem, ack_expected_true, ack_label)
+        self.safe_log(f"{label}: ACK recebido {ack_label} valor={ack_value}; desligando M{mem}.")
+        self.write_mem(mem, False)
+        self.log_clp_snapshot(f"depois ACK e desligamento M{mem} - {label}")
+        return ack_value
+
     def clear_cycle_signals(self, label):
         self.log_clp_snapshot(f"antes limpeza sinais - {label}")
         for mem, name in (
@@ -610,27 +629,25 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.log_clp_snapshot("apos gravacao/inspecao Arte 1 antes M1510")
 
                 self.set_status("Avisando CLP: Arte 1 gravada/inspecionada (M1510)...")
-                self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_1, "Gravacao + inspecao lado 1 concluida")
-
-                after_1510_s = max(float(self.var_after_rotate_s.get()), 0.0)
-                if after_1510_s:
-                    self.safe_log(f"Aguardando {after_1510_s:.2f}s apos M1510.")
-                    time.sleep(after_1510_s)
-
-                self.set_status("Aguardando CLP consumir M1500 para giro...")
-                consumed_1 = self.wait_mem_false(AUTO_MEM_PRONTO_GRAVACAO, "M1500 consumido apos Arte 1")
+                consumed_1 = self.signal_command_until_ack(
+                    AUTO_MEM_GRAVACAO_INSPECAO_1,
+                    "Gravacao + inspecao lado 1 concluida",
+                    AUTO_MEM_PRONTO_GRAVACAO,
+                    False,
+                    "M1500 consumido apos Arte 1",
+                )
                 if not self.running:
                     break
                 self.safe_log(f"[HANDSHAKE] M1500 FALSE apos Arte 1: valor={consumed_1}")
-                self.log_clp_snapshot("M1500 FALSE apos Arte 1")
 
-                self.log_clp_snapshot("antes de aguardar M1500 Arte 2")
-                self.set_status("Aguardando M1500 pronto para Arte 2...")
-                ready_2 = self.wait_mem_true(AUTO_MEM_PRONTO_GRAVACAO, "Pronto gravacao Arte 2")
-                if not self.running or ready_2 is None:
-                    break
-                self.safe_log(f"[HANDSHAKE] M1500 TRUE recebido para Arte 2: valor={ready_2}")
-                self.log_clp_snapshot("M1500 TRUE Arte 2")
+                after_1510_s = max(float(self.var_after_rotate_s.get()), 0.0)
+                if after_1510_s:
+                    self.safe_log(f"Aguardando {after_1510_s:.2f}s apos ACK M1510.")
+                    time.sleep(after_1510_s)
+
+                self.log_clp_snapshot("antes da Arte 2 apos espera M1510")
+                self.set_status("Gravando Arte 2 apos timer M1510...")
+                self.safe_log("[HANDSHAKE] M1500 nao sera aguardado para Arte 2; usando timer apos M1510 como liberacao.")
 
                 traseira_ok = self.mark_one_arte_with_inspection(prebuild, "arte2", "Arte 2")
                 self.safe_log(f"[INSPECAO] Arte 2 resultado={'OK' if traseira_ok else 'NG'}")
@@ -638,10 +655,12 @@ class RotinaAutomaticaPage(ttk.Frame):
 
                 self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511)...")
                 self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_2, "Gravacao + inspecao lado 2 concluida")
+                if not self.running:
+                    break
 
                 after_1511_s = max(float(self.var_after_return_s.get()), 0.0)
                 if after_1511_s:
-                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos M1511.")
+                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos ACK M1511.")
                     time.sleep(after_1511_s)
 
                 aprovado = frontal_ok and traseira_ok
