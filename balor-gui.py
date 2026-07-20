@@ -84,8 +84,8 @@ class BalorStudioLite:
         self.custom_scene_items = [] 
         # Will hold dicts: {'id', 'file', 'ox', 'oy', 'sx', 'sy', 'rot', 'color', 'visible'}
         self.combined_offsets = {
-            'base_1': [-6.9076, -14.8834],
-            'base_2': [-6.1260, -40.8248]
+            'base_1': [-1.1317, -35.5651],
+            'base_2': [-3.8902, -7.6600]
         }
         self.is_combined_mode = False
         
@@ -793,7 +793,7 @@ class BalorStudioLite:
             "Arte 1 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "-6.9076", "offset_y": "-14.8834", "scale": "1.0",
+                "offset_x": "-1.1317", "offset_y": "-35.5651", "scale": "1.0",
                 "width_mm": "12.00", "height_mm": "39.62",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "6.0", "barcode_w_scale": "1.338",
@@ -805,7 +805,7 @@ class BalorStudioLite:
             "Arte 2 (Serial Banco)": {
                 "power": "25", "speed": "3500", "freq": "60",
                 "hatch_enable": True, "hatch_angle": "90", "hatch_spacing": "10.0",
-                "offset_x": "-6.1260", "offset_y": "-40.8248", "scale": "1.0",
+                "offset_x": "-3.8902", "offset_y": "-7.6600", "scale": "1.0",
                 "width_mm": "29.00", "height_mm": "9.00",
                 "text_type": "Code 128 + Serial", "text_pos": "bottom",
                 "barcode_h": "5.1", "barcode_w_scale": "1.0",
@@ -826,8 +826,8 @@ class BalorStudioLite:
                 "group_barcode": True,
                 "is_combined": True,
                 "combined_offsets": {
-                    "base_1": [-6.9076, -14.8834],
-                    "base_2": [-6.1260, -40.8248]
+                    "base_1": [-1.1317, -35.5651],
+                    "base_2": [-3.8902, -7.6600]
                 },
                 "obj_visibility": {"base_1": True, "base_2": True}
             }
