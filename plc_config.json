@@ -5,45 +5,40 @@
     "port_robo": "502",
     "actions": [
         {
-            "name": "ACIONAR SENSOR - MANUAL",
-            "mem": "80",
+            "name": "GRAVACAO + INSPECAO 1 LADO",
+            "mem": "1510",
             "tgt": "CLP"
         },
         {
-            "name": "GIRAR 1 VEZ",
-            "mem": "71",
-            "tgt": "CLP"
-        },
-        {
-            "name": "VOLTAR GIRO",
-            "mem": "72",
-            "tgt": "CLP"
-        },
-        {
-            "name": "NG",
-            "mem": "73",
+            "name": "GRAVACAO + INSPECAO 2 LADO",
+            "mem": "1511",
             "tgt": "CLP"
         },
         {
             "name": "OK",
-            "mem": "74",
+            "mem": "1115",
+            "tgt": "CLP"
+        },
+        {
+            "name": "NG",
+            "mem": "1116",
             "tgt": "CLP"
         }
     ],
     "statuses": [
         {
+            "name": "PRONTO PARA GRAVACAO",
+            "mem": "1500",
+            "tgt": "CLP"
+        },
+        {
+            "name": "POSICAO INICIAL 1500(FALSE)",
+            "mem": "1500",
+            "tgt": "CLP"
+        },
+        {
             "name": "SENSOR ESTEIRA",
-            "mem": "70",
-            "tgt": "CLP"
-        },
-        {
-            "name": "DO0 ROBO - ROTINA",
-            "mem": "90",
-            "tgt": "CLP"
-        },
-        {
-            "name": "GIRAR PE\u00c7A",
-            "mem": "91",
+            "mem": "1110",
             "tgt": "CLP"
         }
     ]
