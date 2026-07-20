@@ -1,4 +1,4 @@
-import json
+﻿import json
 import os
 import socket
 import subprocess
@@ -13,7 +13,7 @@ PRESETS_FILE = "laser_presets.json"
 AUTO_MEM_PRONTO_GRAVACAO = "1500"
 AUTO_MEM_GRAVACAO_INSPECAO_1 = "1510"
 AUTO_MEM_GRAVACAO_INSPECAO_2 = "1511"
-AUTO_MEM_RESULT_OK = "1115"
+AUTO_MEM_RESULT_OK = "1120"
 AUTO_MEM_RESULT_NG = "1116"
 AUTO_MEM_SENSOR_ESTEIRA = "1110"
 AUTO_MEM_PECA_NO_PONTO = AUTO_MEM_PRONTO_GRAVACAO
@@ -714,7 +714,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             "ready": {"arte1": threading.Event(), "arte2": threading.Event()},
             "presets": {"arte1": preset_arte1, "arte2": preset_arte2},
         }
-
+    
         def _build_job(suffix, preset_name):
             try:
                 ctx["jobs"][suffix] = self.build_laser_job(preset_name, suffix)
