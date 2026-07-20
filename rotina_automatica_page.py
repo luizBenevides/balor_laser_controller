@@ -269,8 +269,8 @@ class RotinaAutomaticaPage(ttk.Frame):
         return {
             AUTO_PRESET_ARTE_1: {
                 "power": "25", "speed": "3500", "freq": "60", "hatch_enable": True,
-                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-6.9076",
-                "offset_y": "-14.8834", "scale": "1.0", "barcode_h": "6.0",
+                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-1.1317",
+                "offset_y": "-35.5651", "scale": "1.0", "barcode_h": "6.0",
                 "barcode_w_scale": "1.338", "text_scale": "2.5", "text_x_off": "0.0",
                 "text_y_off": "0.0", "barcode_rot": "90", "text_rot": "270",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
@@ -278,8 +278,8 @@ class RotinaAutomaticaPage(ttk.Frame):
             },
             AUTO_PRESET_ARTE_2: {
                 "power": "25", "speed": "3500", "freq": "60", "hatch_enable": True,
-                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-6.1260",
-                "offset_y": "-40.8248", "scale": "1.0", "barcode_h": "5.1",
+                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-3.8902",
+                "offset_y": "-7.6600", "scale": "1.0", "barcode_h": "5.1",
                 "barcode_w_scale": "1.0", "text_scale": "2.5", "text_x_off": "0.0",
                 "text_y_off": "0.0", "barcode_rot": "180", "text_rot": "180",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
@@ -294,8 +294,8 @@ class RotinaAutomaticaPage(ttk.Frame):
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
                 "text_pos": "bottom", "group_barcode": True, "is_combined": True,
                 "combined_offsets": {
-                    "base_1": [-6.9076, -14.8834],
-                    "base_2": [-6.1260, -40.8248]
+                    "base_1": [-1.1317, -35.5651],
+                    "base_2": [-3.8902, -7.6600]
                 },
                 "obj_visibility": {"base_1": True, "base_2": True}
             }
