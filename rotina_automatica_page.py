@@ -33,6 +33,7 @@ KEYENCE_TRIGGER_CMD = b"TRG\r"
 CAMERA_AFTER_MARK_DELAY_S = 0.0
 AUTO_MEM_POLL_FAST_S = 0.05
 AUTO_MEM_WAIT_LOG_EVERY_S = 2.0
+AUTO_RESULT_HOLD_S = 3.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -57,7 +58,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_test_serial = tk.StringVar(value="4313110010")
         self.var_preset_arte1 = tk.StringVar(value=AUTO_PRESET_ARTE_1)
         self.var_preset_arte2 = tk.StringVar(value=AUTO_PRESET_ARTE_2)
-        self.var_pulse_ms = tk.StringVar(value="300")
+        self.var_pulse_ms = tk.StringVar(value="1200")
         self.var_after_m70_s = tk.StringVar(value="0.1") #espera do robo deixar a peca no molde
         self.var_after_rotate_s = tk.StringVar(value="0.2")
         self.var_after_return_s = tk.StringVar(value="0.1")
@@ -708,6 +709,12 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.log_tempo("Escrita resultado OK/NG no CLP", result_started_at)
 
                 self.log_clp_snapshot(f"resultado final liberado {inspecao}")
+                if AUTO_RESULT_HOLD_S > 0:
+                    hold_started_at = time.perf_counter()
+                    self.safe_log(f"[RESULTADO] Mantendo {inspecao} ativo por {AUTO_RESULT_HOLD_S:.2f}s para o CLP/robo consumir.")
+                    time.sleep(AUTO_RESULT_HOLD_S)
+                    self.log_tempo(f"Resultado {inspecao} mantido antes proximo ciclo", hold_started_at)
+                    self.log_clp_snapshot(f"apos hold resultado {inspecao}")
                 if hasattr(self.app, "add_dashboard_record"):
                     self.app.add_dashboard_record(self.var_serial.get().strip(), frontal_ok, traseira_ok, inspecao)
                 finish_serial_started_at = time.perf_counter()
