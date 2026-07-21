@@ -121,7 +121,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         flow.pack(fill="x", padx=10, pady=5)
         ttk.Label(
             flow,
-            text="Novo fluxo: aguarda M1500 TRUE para gravar; avisa M1510 apos Arte 1; avisa M1511 apos Arte 2; libera M1115 OK ou M1116 NG."
+            text="Novo fluxo: aguarda M1500 TRUE para gravar; avisa M1510 apos Arte 1; avisa M1511 apos Arte 2; libera M1120 OK ou M1116 NG."
         ).pack(anchor="w")
         buttons = ttk.Frame(flow)
         buttons.pack(fill="x", pady=8)
@@ -141,9 +141,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         self._manual_button(manual, 0, 2, "Pulsa M1510\nFim lado 1", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_1))
         self._manual_button(manual, 0, 3, "Pulsa M1511\nFim lado 2", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_2))
         self._manual_button(manual, 0, 4, "Liga M1116\nNG", lambda: self.manual_write(AUTO_MEM_RESULT_NG, True))
-        self._manual_button(manual, 0, 5, "Liga M1115\nOK", lambda: self.manual_write(AUTO_MEM_RESULT_OK, True))
+        self._manual_button(manual, 0, 5, "Liga M1120\nOK", lambda: self.manual_write(AUTO_MEM_RESULT_OK, True))
         self._manual_button(manual, 1, 0, "Desliga M1116", lambda: self.manual_write(AUTO_MEM_RESULT_NG, False))
-        self._manual_button(manual, 1, 1, "Desliga M1115", lambda: self.manual_write(AUTO_MEM_RESULT_OK, False))
+        self._manual_button(manual, 1, 1, "Desliga M1120", lambda: self.manual_write(AUTO_MEM_RESULT_OK, False))
         self._manual_button(manual, 1, 2, "Abrir\nBalor GUI", self.open_balor_gui)
         self._manual_button(manual, 1, 3, "Recarregar\nPresets", self.reload_presets)
 
@@ -152,7 +152,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self._status_label(monitor, "M1500 Pronto", self.var_m1500, 0)
         self._status_label(monitor, "M1110 Esteira", self.var_m1110, 1)
         self._status_label(monitor, "M1116 NG", self.var_m1116, 2)
-        self._status_label(monitor, "M1115 OK", self.var_m1115, 3)
+        self._status_label(monitor, "M1120 OK", self.var_m1115, 3)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=10)
         log_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -393,7 +393,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             "M1110 esteira": self.read_mem_for_log(AUTO_MEM_SENSOR_ESTEIRA),
             "M1510 fim lado1": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_1),
             "M1511 fim lado2": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_2),
-            "M1115 OK": self.read_mem_for_log(AUTO_MEM_RESULT_OK),
+            "M1120 OK": self.read_mem_for_log(AUTO_MEM_RESULT_OK),
             "M1116 NG": self.read_mem_for_log(AUTO_MEM_RESULT_NG),
         }
         snapshot = " | ".join(f"{name}={value}" for name, value in values.items())
@@ -450,7 +450,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         for mem, name in (
             (AUTO_MEM_GRAVACAO_INSPECAO_1, "M1510 fim lado 1"),
             (AUTO_MEM_GRAVACAO_INSPECAO_2, "M1511 fim lado 2"),
-            (AUTO_MEM_RESULT_OK, "M1115 OK"),
+            (AUTO_MEM_RESULT_OK, "M1120 OK"),
             (AUTO_MEM_RESULT_NG, "M1116 NG"),
         ):
             current = self.read_mem_for_log(mem)
@@ -604,7 +604,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.set_status("Parando...")
 
     def auto_loop(self):
-        self.safe_log("Rotina automatica iniciada no novo fluxo CLP (M1500/M1510/M1511/M1115/M1116).")
+        self.safe_log("Rotina automatica iniciada no novo fluxo CLP (M1500/M1510/M1511/M1120/M1116).")
         try:
             while self.running:
                 cycle_started_at = time.perf_counter()
@@ -694,10 +694,10 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.log_clp_snapshot("antes de liberar resultado final")
                 result_started_at = time.perf_counter()
                 if aprovado:
-                    self.set_status("Liberando resultado OK em M1115...")
+                    self.set_status("Liberando resultado OK em M1120...")
                     self.write_mem(AUTO_MEM_RESULT_NG, False)
                     self.write_mem(AUTO_MEM_RESULT_OK, True)
-                    self.safe_log("Ciclo concluido. Inspecoes OK; M1115 ligado como aprovado.")
+                    self.safe_log("Ciclo concluido. Inspecoes OK; M1120 ligado como aprovado.")
                     inspecao = "Aprovado"
                 else:
                     self.set_status("Liberando resultado NG em M1116...")
