@@ -1,4 +1,4 @@
-﻿import json
+import json
 import os
 import socket
 import subprocess
@@ -451,8 +451,6 @@ class RotinaAutomaticaPage(ttk.Frame):
         for mem, name in (
             (AUTO_MEM_GRAVACAO_INSPECAO_1, "M1510 fim lado 1"),
             (AUTO_MEM_GRAVACAO_INSPECAO_2, "M1511 fim lado 2"),
-            (AUTO_MEM_RESULT_OK, "M1120 OK"),
-            (AUTO_MEM_RESULT_NG, "M1116 NG"),
         ):
             current = self.read_mem_for_log(mem)
             if self.is_true_value(current):
@@ -460,7 +458,26 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.write_mem(mem, False)
             else:
                 self.safe_log(f"[LIMPEZA] {name} ja estava FALSE ({current}).")
+        self.safe_log("[LIMPEZA] Mantendo M1120/M1116 do ciclo anterior ativos para o robo consumir.")
         self.log_clp_snapshot(f"depois limpeza sinais - {label}")
+
+    def clear_result_signals_before_new_result(self, label):
+        self.log_clp_snapshot(f"antes limpeza resultado - {label}")
+        cleared = False
+        for mem, name in (
+            (AUTO_MEM_RESULT_OK, "M1120 OK"),
+            (AUTO_MEM_RESULT_NG, "M1116 NG"),
+        ):
+            current = self.read_mem_for_log(mem)
+            if self.is_true_value(current):
+                self.safe_log(f"[RESULTADO] {name} estava TRUE; limpando para gerar novo resultado.")
+                self.write_mem(mem, False)
+                cleared = True
+            else:
+                self.safe_log(f"[RESULTADO] {name} ja estava FALSE ({current}).")
+        if cleared:
+            time.sleep(0.2)
+        self.log_clp_snapshot(f"depois limpeza resultado - {label}")
 
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
@@ -679,6 +696,9 @@ class RotinaAutomaticaPage(ttk.Frame):
                 aprovado = frontal_ok and traseira_ok
                 self.safe_log(f"[RESULTADO] frontal_ok={frontal_ok} traseira_ok={traseira_ok} aprovado={aprovado}")
                 self.log_clp_snapshot("antes de liberar resultado final")
+                clear_result_started_at = time.perf_counter()
+                self.clear_result_signals_before_new_result("novo resultado final")
+                self.log_tempo("Limpeza resultado anterior antes novo OK/NG", clear_result_started_at)
                 result_started_at = time.perf_counter()
                 if aprovado:
                     self.set_status("Liberando resultado OK em M1120 antes do M1511...")
