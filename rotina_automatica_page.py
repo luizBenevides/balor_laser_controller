@@ -53,6 +53,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.m70_latched = False
         self.m70_last_state = None
         self.m70_monitor_thread = None
+        self.job_cache = {}
+        self.job_cache_lock = threading.RLock()
+        self.job_cache_max = 8
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -336,6 +339,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.db_manager = db_module.DBManager()
         self.db_serials = []
         self.current_record = None
+        with self.job_cache_lock:
+            self.job_cache.clear()
+        self.safe_log("Cache de jobs da laser limpo apos recarregar presets.")
         names = list(self.presets.keys())
         self.combo_arte1["values"] = names
         self.combo_arte2["values"] = names
@@ -829,6 +835,39 @@ class RotinaAutomaticaPage(ttk.Frame):
         commands = self.build_laser_job(preset_name, suffix)
         self.execute_laser_job(commands, preset_name, suffix)
 
+    def make_job_cache_key(self, preset_name, suffix, serial, preset):
+        try:
+            preset_signature = json.dumps(preset, sort_keys=True, ensure_ascii=True)
+        except TypeError:
+            preset_signature = str(sorted(preset.items()))
+        cal_signature = None
+        if os.path.exists("cal_0002.csv"):
+            try:
+                cal_signature = os.path.getmtime("cal_0002.csv")
+            except OSError:
+                cal_signature = "erro_mtime"
+        return (preset_name, suffix, serial, preset_signature, cal_signature)
+
+    def get_cached_job_data(self, cache_key, suffix):
+        with self.job_cache_lock:
+            cached = self.job_cache.get(cache_key)
+            if cached is None:
+                return None
+            self.safe_log(f"[CACHE] Job {suffix} reutilizado do cache / bin={len(cached)} bytes")
+            return cached
+
+    def store_cached_job_data(self, cache_key, suffix, job_data):
+        with self.job_cache_lock:
+            if cache_key in self.job_cache:
+                self.job_cache[cache_key] = job_data
+                return
+            if len(self.job_cache) >= self.job_cache_max:
+                oldest_key = next(iter(self.job_cache))
+                self.job_cache.pop(oldest_key, None)
+                self.safe_log("[CACHE] Cache de jobs cheio; removi o job mais antigo.")
+            self.job_cache[cache_key] = job_data
+            self.safe_log(f"[CACHE] Job {suffix} salvo no cache / bin={len(job_data)} bytes")
+
     def build_laser_job(self, preset_name, suffix):
         preset = self.presets.get(preset_name)
         if not preset:
@@ -839,12 +878,21 @@ class RotinaAutomaticaPage(ttk.Frame):
         import composer_module
 
         serial = self.var_serial.get().strip() or "TESTE123"
+        total_started_at = time.perf_counter()
+        cache_key = self.make_job_cache_key(preset_name, suffix, serial, preset)
+        cached_job_data = self.get_cached_job_data(cache_key, suffix)
+        if cached_job_data is not None:
+            parse_started_at = time.perf_counter()
+            command_binary = balor.command_list.CommandBinary(cached_job_data)
+            self.log_tempo(f"{suffix} parse CommandBinary cache", parse_started_at)
+            self.log_tempo(f"{suffix} build_laser_job total cache", total_started_at)
+            return command_binary
+
         raw_svg_file = f"temp_auto_{suffix}_raw.svg"
         svg_file = f"temp_auto_{suffix}.svg"
         job_file = f"temp_auto_{suffix}.bin"
         settings_file = f"temp_auto_{suffix}_settings.csv"
 
-        total_started_at = time.perf_counter()
         gen_started_at = time.perf_counter()
         gen = barcode_module.BarcodeGenerator(font_path=preset.get("text_font", "arial.ttf"))
         gen.generate_code128_svg(
@@ -931,6 +979,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         with open(job_file, "rb") as f:
             job_data = f.read()
         self.log_tempo(f"{suffix} leitura job binario", read_started_at)
+        self.store_cached_job_data(cache_key, suffix, job_data)
 
         parse_started_at = time.perf_counter()
         command_binary = balor.command_list.CommandBinary(job_data)
