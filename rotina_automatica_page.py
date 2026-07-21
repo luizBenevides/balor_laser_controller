@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 import socket
@@ -56,6 +57,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.job_cache = {}
         self.job_cache_lock = threading.RLock()
         self.job_cache_max = 8
+        self.job_cache_dir = os.path.join("temp_auto_job_cache")
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -848,24 +850,43 @@ class RotinaAutomaticaPage(ttk.Frame):
                 cal_signature = "erro_mtime"
         return (preset_name, suffix, serial, preset_signature, cal_signature)
 
+    def job_cache_file_path(self, cache_key, suffix):
+        digest = hashlib.sha256(repr(cache_key).encode("utf-8", errors="replace")).hexdigest()
+        return os.path.join(self.job_cache_dir, f"{suffix}_{digest}.bin")
+
     def get_cached_job_data(self, cache_key, suffix):
         with self.job_cache_lock:
             cached = self.job_cache.get(cache_key)
-            if cached is None:
-                return None
-            self.safe_log(f"[CACHE] Job {suffix} reutilizado do cache / bin={len(cached)} bytes")
-            return cached
+            if cached is not None:
+                self.safe_log(f"[CACHE] HIT memoria job {suffix} / bin={len(cached)} bytes")
+                return cached
+
+            cache_file = self.job_cache_file_path(cache_key, suffix)
+            if os.path.exists(cache_file):
+                with open(cache_file, "rb") as f:
+                    cached = f.read()
+                self.job_cache[cache_key] = cached
+                self.safe_log(f"[CACHE] HIT disco job {suffix} / bin={len(cached)} bytes")
+                return cached
+
+            self.safe_log(f"[CACHE] MISS job {suffix}; gerando binario novo.")
+            return None
 
     def store_cached_job_data(self, cache_key, suffix, job_data):
         with self.job_cache_lock:
             if cache_key in self.job_cache:
                 self.job_cache[cache_key] = job_data
-                return
-            if len(self.job_cache) >= self.job_cache_max:
-                oldest_key = next(iter(self.job_cache))
-                self.job_cache.pop(oldest_key, None)
-                self.safe_log("[CACHE] Cache de jobs cheio; removi o job mais antigo.")
-            self.job_cache[cache_key] = job_data
+            else:
+                if len(self.job_cache) >= self.job_cache_max:
+                    oldest_key = next(iter(self.job_cache))
+                    self.job_cache.pop(oldest_key, None)
+                    self.safe_log("[CACHE] Cache de jobs em memoria cheio; removi o job mais antigo.")
+                self.job_cache[cache_key] = job_data
+
+            os.makedirs(self.job_cache_dir, exist_ok=True)
+            cache_file = self.job_cache_file_path(cache_key, suffix)
+            with open(cache_file, "wb") as f:
+                f.write(job_data)
             self.safe_log(f"[CACHE] Job {suffix} salvo no cache / bin={len(job_data)} bytes")
 
     def build_laser_job(self, preset_name, suffix):
