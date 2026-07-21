@@ -674,40 +674,42 @@ class RotinaAutomaticaPage(ttk.Frame):
                 traseira_ok = self.mark_one_arte_with_inspection(prebuild, "arte2", "Arte 2")
                 self.log_tempo("Arte 2 total gravacao + espera camera + inspecao", arte2_total_started_at)
                 self.safe_log(f"[INSPECAO] Arte 2 resultado={'OK' if traseira_ok else 'NG'}")
-                self.log_clp_snapshot("apos gravacao/inspecao Arte 2 antes M1511")
-
-                self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511)...")
-                m1511_started_at = time.perf_counter()
-                self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_2, "Gravacao + inspecao lado 2 concluida")
-                self.log_tempo("Pulso M1511", m1511_started_at)
-                if not self.running:
-                    break
-
-                after_1511_s = max(float(self.var_after_return_s.get()), 0.0)
-                if after_1511_s:
-                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos ACK M1511.")
-                    timer_started_at = time.perf_counter()
-                    time.sleep(after_1511_s)
-                    self.log_tempo("Timer apos M1511 antes resultado", timer_started_at)
+                self.log_clp_snapshot("apos gravacao/inspecao Arte 2 antes resultado/M1511")
 
                 aprovado = frontal_ok and traseira_ok
                 self.safe_log(f"[RESULTADO] frontal_ok={frontal_ok} traseira_ok={traseira_ok} aprovado={aprovado}")
                 self.log_clp_snapshot("antes de liberar resultado final")
                 result_started_at = time.perf_counter()
                 if aprovado:
-                    self.set_status("Liberando resultado OK em M1120...")
+                    self.set_status("Liberando resultado OK em M1120 antes do M1511...")
                     self.write_mem(AUTO_MEM_RESULT_NG, False)
                     self.write_mem(AUTO_MEM_RESULT_OK, True)
-                    self.safe_log("Ciclo concluido. Inspecoes OK; M1120 ligado como aprovado.")
+                    self.safe_log("Resultado preparado. Inspecoes OK; M1120 ligado como aprovado antes do M1511.")
                     inspecao = "Aprovado"
                 else:
-                    self.set_status("Liberando resultado NG em M1116...")
+                    self.set_status("Liberando resultado NG em M1116 antes do M1511...")
                     self.write_mem(AUTO_MEM_RESULT_OK, False)
                     self.write_mem(AUTO_MEM_RESULT_NG, True)
-                    self.safe_log("Ciclo concluido. Uma ou mais inspecoes reprovaram; M1116 ligado como NG.")
+                    self.safe_log("Resultado preparado. Uma ou mais inspecoes reprovaram; M1116 ligado como NG antes do M1511.")
                     inspecao = "Reprovado"
                 self.log_tempo("Escrita resultado OK/NG no CLP", result_started_at)
+                self.log_clp_snapshot(f"resultado {inspecao} ativo antes M1511")
 
+                self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511) com resultado ativo...")
+                m1511_started_at = time.perf_counter()
+                self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_2, "Gravacao + inspecao lado 2 concluida")
+                self.log_tempo("Pulso M1511 com resultado ativo", m1511_started_at)
+                if not self.running:
+                    break
+
+                after_1511_s = max(float(self.var_after_return_s.get()), 0.0)
+                if after_1511_s:
+                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos M1511 mantendo resultado ativo.")
+                    timer_started_at = time.perf_counter()
+                    time.sleep(after_1511_s)
+                    self.log_tempo("Timer apos M1511 com resultado ativo", timer_started_at)
+
+                self.safe_log(f"Ciclo concluido. Resultado final {inspecao} mantido ativo.")
                 self.log_clp_snapshot(f"resultado final liberado {inspecao}")
                 if AUTO_RESULT_HOLD_S > 0:
                     hold_started_at = time.perf_counter()
