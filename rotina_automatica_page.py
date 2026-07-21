@@ -70,7 +70,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_status = tk.StringVar(value="Modo preparação")
         self.var_m1500 = tk.StringVar(value="---")
         self.var_m1110 = tk.StringVar(value="---")
-        self.var_m1115 = tk.StringVar(value="---")
+        self.var_m1120 = tk.StringVar(value="---")
         self.var_m1116 = tk.StringVar(value="---")
 
         self.build_ui()
@@ -152,7 +152,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self._status_label(monitor, "M1500 Pronto", self.var_m1500, 0)
         self._status_label(monitor, "M1110 Esteira", self.var_m1110, 1)
         self._status_label(monitor, "M1116 NG", self.var_m1116, 2)
-        self._status_label(monitor, "M1120 OK", self.var_m1115, 3)
+        self._status_label(monitor, "M1120 OK", self.var_m1120, 3)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=10)
         log_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -1084,5 +1084,5 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_m1500.set(values[0])
         self.var_m1110.set(values[1])
         self.var_m1116.set(values[2])
-        self.var_m1115.set(values[3])
+        self.var_m1120.set(values[3])
         self.after(1000, self.refresh_status_loop)
