@@ -67,6 +67,11 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.db_prebuild_worker_running = False
         self.test_serial_cycle = []
         self.test_serial_index = 0
+        self.test_prebuild_lock = threading.RLock()
+        self.test_prebuilt_jobs = {}
+        self.test_prebuild_building = set()
+        self.test_prebuild_started = set()
+        self.test_prebuild_worker_running = False
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -225,6 +230,10 @@ class RotinaAutomaticaPage(ttk.Frame):
     def reset_test_serial_cycle(self):
         self.test_serial_cycle = self.build_test_serial_cycle()
         self.test_serial_index = 0
+        with self.test_prebuild_lock:
+            self.test_prebuilt_jobs.clear()
+            self.test_prebuild_building.clear()
+            self.test_prebuild_started.clear()
         self.safe_log(f"[MODO-TESTE] Lista de {len(self.test_serial_cycle)} seriais preparada: {', '.join(self.test_serial_cycle)}")
 
     def next_test_cycle_serial(self):
@@ -670,6 +679,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         if self.var_test_mode.get():
             self.reset_test_serial_cycle()
         self.btn_start.config(state="disabled")
+        self.start_test_prebuild_queue()
         self.start_db_prebuild_queue()
         self.worker_thread = threading.Thread(target=self.auto_loop, daemon=True)
         self.worker_thread.start()
@@ -840,6 +850,15 @@ class RotinaAutomaticaPage(ttk.Frame):
             return None
 
     def pop_prebuilt_jobs_for_current(self, serial):
+        if self.var_test_mode.get():
+            with self.test_prebuild_lock:
+                ctx = self.test_prebuilt_jobs.pop(serial, None)
+            if ctx is None:
+                self.safe_log(f"[PREBUILD-TESTE] Sem job antecipado para serial {serial}; gerando no ciclo.")
+                return None
+            self.safe_log(f"[PREBUILD-TESTE] Usando job antecipado do modo teste para serial {serial}.")
+            return ctx
+
         record_key = self._record_id_key(self.current_record)
         if not record_key:
             return None
@@ -850,6 +869,66 @@ class RotinaAutomaticaPage(ttk.Frame):
             return None
         self.safe_log(f"[PREBUILD-FILA] Usando job antecipado do banco para serial {serial} (ID {record_key}).")
         return ctx
+
+    def start_test_prebuild_queue(self):
+        if not self.var_test_mode.get() or not self.running:
+            return
+        with self.test_prebuild_lock:
+            if self.test_prebuild_worker_running:
+                return
+            self.test_prebuild_worker_running = True
+        self.safe_log(f"[PREBUILD-TESTE] Worker iniciado para gerar os {len(self.test_serial_cycle)} seriais do modo teste.")
+        threading.Thread(target=self._test_prebuild_queue_worker, daemon=True).start()
+
+    def _test_prebuild_queue_worker(self):
+        try:
+            while self.running and self.var_test_mode.get():
+                selected = None
+                with self.test_prebuild_lock:
+                    for serial in self.test_serial_cycle:
+                        if serial in self.test_prebuild_started or serial in self.test_prebuilt_jobs or serial in self.test_prebuild_building:
+                            continue
+                        self.test_prebuild_started.add(serial)
+                        self.test_prebuild_building.add(serial)
+                        selected = serial
+                        break
+
+                if selected is None:
+                    time.sleep(0.5)
+                    continue
+
+                serial = selected
+                started_at = time.perf_counter()
+                self.safe_log(f"[PREBUILD-TESTE] Gerando antecipado serial {serial}.")
+                ctx = self.start_prebuild_jobs(serial)
+                ctx["serial"] = serial
+                ctx["prebuild_started_at"] = started_at
+                with self.test_prebuild_lock:
+                    self.test_prebuilt_jobs[serial] = ctx
+
+                try:
+                    ctx["ready"]["arte1"].wait()
+                    if "arte1" in ctx["errors"]:
+                        raise ctx["errors"]["arte1"]
+                    self.log_tempo(f"PREBUILD-TESTE arte1 pronta serial {serial}", started_at)
+
+                    ctx["ready"]["arte2"].wait()
+                    if "arte2" in ctx["errors"]:
+                        raise ctx["errors"]["arte2"]
+                    self.log_tempo(f"PREBUILD-TESTE arte1+arte2 prontas serial {serial}", started_at)
+                except Exception as exc:
+                    self.safe_log(f"[PREBUILD-TESTE] Falha ao gerar antecipado serial {serial}: {exc}")
+                    with self.test_prebuild_lock:
+                        if self.test_prebuilt_jobs.get(serial) is ctx:
+                            self.test_prebuilt_jobs.pop(serial, None)
+                finally:
+                    with self.test_prebuild_lock:
+                        self.test_prebuild_building.discard(serial)
+        except Exception as exc:
+            self.safe_log(f"[PREBUILD-TESTE] Worker parou por erro: {exc}")
+        finally:
+            with self.test_prebuild_lock:
+                self.test_prebuild_worker_running = False
 
     def start_db_prebuild_queue(self):
         if self.var_test_mode.get() or not self.var_use_db_auto_sync.get() or not self.running:
