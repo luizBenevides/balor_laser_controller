@@ -1,4 +1,5 @@
-﻿import json
+import hashlib
+import json
 import os
 import socket
 import subprocess
@@ -30,9 +31,10 @@ KEYENCE_TIMEOUT_S = 5
 KEYENCE_RECV_CHUNK = 1024
 KEYENCE_IDLE_GRACE_S = 0.25
 KEYENCE_TRIGGER_CMD = b"TRG\r"
-CAMERA_AFTER_MARK_DELAY_S = 2.0
+CAMERA_AFTER_MARK_DELAY_S = 0.0
 AUTO_MEM_POLL_FAST_S = 0.05
 AUTO_MEM_WAIT_LOG_EVERY_S = 2.0
+AUTO_RESULT_HOLD_S = 3.0
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -52,15 +54,19 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.m70_latched = False
         self.m70_last_state = None
         self.m70_monitor_thread = None
+        self.job_cache = {}
+        self.job_cache_lock = threading.RLock()
+        self.job_cache_max = 8
+        self.job_cache_dir = os.path.join("temp_auto_job_cache")
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
         self.var_preset_arte1 = tk.StringVar(value=AUTO_PRESET_ARTE_1)
         self.var_preset_arte2 = tk.StringVar(value=AUTO_PRESET_ARTE_2)
-        self.var_pulse_ms = tk.StringVar(value="1100")
-        self.var_after_m70_s = tk.StringVar(value="1.0") #espera do robo deixar a peça no molde
-        self.var_after_rotate_s = tk.StringVar(value="1.0")
-        self.var_after_return_s = tk.StringVar(value="1.5")
+        self.var_pulse_ms = tk.StringVar(value="1200")
+        self.var_after_m70_s = tk.StringVar(value="0.1") #espera do robo deixar a peca no molde
+        self.var_after_rotate_s = tk.StringVar(value="0.2")
+        self.var_after_return_s = tk.StringVar(value="0.1")
         self.var_robot_routines_started = tk.BooleanVar(value=False)
         self.var_auto_flow_enabled = tk.BooleanVar(value=False)
         self.var_require_m90_ready = tk.BooleanVar(value=True)
@@ -70,7 +76,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_status = tk.StringVar(value="Modo preparação")
         self.var_m1500 = tk.StringVar(value="---")
         self.var_m1110 = tk.StringVar(value="---")
-        self.var_m1115 = tk.StringVar(value="---")
+        self.var_m1120 = tk.StringVar(value="---")
         self.var_m1116 = tk.StringVar(value="---")
 
         self.build_ui()
@@ -121,7 +127,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         flow.pack(fill="x", padx=10, pady=5)
         ttk.Label(
             flow,
-            text="Novo fluxo: aguarda M1500 TRUE para gravar; avisa M1510 apos Arte 1; avisa M1511 apos Arte 2; libera M1115 OK ou M1116 NG."
+            text="Novo fluxo: aguarda M1500 TRUE para gravar; avisa M1510 apos Arte 1; avisa M1511 apos Arte 2; libera M1120 OK ou M1116 NG."
         ).pack(anchor="w")
         buttons = ttk.Frame(flow)
         buttons.pack(fill="x", pady=8)
@@ -141,9 +147,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         self._manual_button(manual, 0, 2, "Pulsa M1510\nFim lado 1", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_1))
         self._manual_button(manual, 0, 3, "Pulsa M1511\nFim lado 2", lambda: self.manual_pulse(AUTO_MEM_GRAVACAO_INSPECAO_2))
         self._manual_button(manual, 0, 4, "Liga M1116\nNG", lambda: self.manual_write(AUTO_MEM_RESULT_NG, True))
-        self._manual_button(manual, 0, 5, "Liga M1115\nOK", lambda: self.manual_write(AUTO_MEM_RESULT_OK, True))
+        self._manual_button(manual, 0, 5, "Liga M1120\nOK", lambda: self.manual_write(AUTO_MEM_RESULT_OK, True))
         self._manual_button(manual, 1, 0, "Desliga M1116", lambda: self.manual_write(AUTO_MEM_RESULT_NG, False))
-        self._manual_button(manual, 1, 1, "Desliga M1115", lambda: self.manual_write(AUTO_MEM_RESULT_OK, False))
+        self._manual_button(manual, 1, 1, "Desliga M1120", lambda: self.manual_write(AUTO_MEM_RESULT_OK, False))
         self._manual_button(manual, 1, 2, "Abrir\nBalor GUI", self.open_balor_gui)
         self._manual_button(manual, 1, 3, "Recarregar\nPresets", self.reload_presets)
 
@@ -152,7 +158,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self._status_label(monitor, "M1500 Pronto", self.var_m1500, 0)
         self._status_label(monitor, "M1110 Esteira", self.var_m1110, 1)
         self._status_label(monitor, "M1116 NG", self.var_m1116, 2)
-        self._status_label(monitor, "M1115 OK", self.var_m1115, 3)
+        self._status_label(monitor, "M1120 OK", self.var_m1120, 3)
 
         log_frame = ttk.LabelFrame(self, text="Log", padding=10)
         log_frame.pack(fill="both", expand=True, padx=10, pady=10)
@@ -335,6 +341,9 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.db_manager = db_module.DBManager()
         self.db_serials = []
         self.current_record = None
+        with self.job_cache_lock:
+            self.job_cache.clear()
+        self.safe_log("Cache de jobs da laser limpo apos recarregar presets.")
         names = list(self.presets.keys())
         self.combo_arte1["values"] = names
         self.combo_arte2["values"] = names
@@ -349,6 +358,11 @@ class RotinaAutomaticaPage(ttk.Frame):
 
     def safe_log(self, msg):
         self.after(0, lambda: self.log(msg))
+
+    def log_tempo(self, label, started_at):
+        elapsed = time.perf_counter() - started_at
+        self.safe_log(f"[TEMPO] {label}: {elapsed:.3f}s")
+        return elapsed
 
     def set_status(self, msg):
         self.after(0, lambda: self.var_status.set(msg))
@@ -388,7 +402,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             "M1110 esteira": self.read_mem_for_log(AUTO_MEM_SENSOR_ESTEIRA),
             "M1510 fim lado1": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_1),
             "M1511 fim lado2": self.read_mem_for_log(AUTO_MEM_GRAVACAO_INSPECAO_2),
-            "M1115 OK": self.read_mem_for_log(AUTO_MEM_RESULT_OK),
+            "M1120 OK": self.read_mem_for_log(AUTO_MEM_RESULT_OK),
             "M1116 NG": self.read_mem_for_log(AUTO_MEM_RESULT_NG),
         }
         snapshot = " | ".join(f"{name}={value}" for name, value in values.items())
@@ -445,8 +459,6 @@ class RotinaAutomaticaPage(ttk.Frame):
         for mem, name in (
             (AUTO_MEM_GRAVACAO_INSPECAO_1, "M1510 fim lado 1"),
             (AUTO_MEM_GRAVACAO_INSPECAO_2, "M1511 fim lado 2"),
-            (AUTO_MEM_RESULT_OK, "M1115 OK"),
-            (AUTO_MEM_RESULT_NG, "M1116 NG"),
         ):
             current = self.read_mem_for_log(mem)
             if self.is_true_value(current):
@@ -454,7 +466,26 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.write_mem(mem, False)
             else:
                 self.safe_log(f"[LIMPEZA] {name} ja estava FALSE ({current}).")
+        self.safe_log("[LIMPEZA] Mantendo M1120/M1116 do ciclo anterior ativos para o robo consumir.")
         self.log_clp_snapshot(f"depois limpeza sinais - {label}")
+
+    def clear_result_signals_before_new_result(self, label):
+        self.log_clp_snapshot(f"antes limpeza resultado - {label}")
+        cleared = False
+        for mem, name in (
+            (AUTO_MEM_RESULT_OK, "M1120 OK"),
+            (AUTO_MEM_RESULT_NG, "M1116 NG"),
+        ):
+            current = self.read_mem_for_log(mem)
+            if self.is_true_value(current):
+                self.safe_log(f"[RESULTADO] {name} estava TRUE; limpando para gerar novo resultado.")
+                self.write_mem(mem, False)
+                cleared = True
+            else:
+                self.safe_log(f"[RESULTADO] {name} ja estava FALSE ({current}).")
+        if cleared:
+            time.sleep(0.2)
+        self.log_clp_snapshot(f"depois limpeza resultado - {label}")
 
     def is_true_value(self, value):
         return str(value).strip().lower() in ("1", "true", "on")
@@ -599,19 +630,26 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.set_status("Parando...")
 
     def auto_loop(self):
-        self.safe_log("Rotina automatica iniciada no novo fluxo CLP (M1500/M1510/M1511/M1115/M1116).")
+        self.safe_log("Rotina automatica iniciada no novo fluxo CLP (M1500/M1510/M1511/M1120/M1116).")
         try:
             while self.running:
+                cycle_started_at = time.perf_counter()
                 self.set_status("Preparando serial e jobs antes do M1500...")
+                serial_started_at = time.perf_counter()
                 serial = self.prepare_cycle_serial()
+                self.log_tempo("Serial preparado", serial_started_at)
                 self.safe_log(f"[CICLO] Novo ciclo preparado para serial={serial}")
+                clear_started_at = time.perf_counter()
                 self.clear_cycle_signals("inicio ciclo")
+                self.log_tempo("Limpeza sinais CLP inicio ciclo", clear_started_at)
                 self.log_clp_snapshot("inicio ciclo antes prebuild")
                 prebuild = self.start_prebuild_jobs()
 
                 self.log_clp_snapshot("antes de aguardar M1500 Arte 1")
                 self.set_status("Aguardando M1500 pronto para Arte 1...")
+                wait_m1500_started_at = time.perf_counter()
                 ready_1 = self.wait_mem_true(AUTO_MEM_PRONTO_GRAVACAO, "Pronto gravacao Arte 1")
+                self.log_tempo("Espera M1500 TRUE Arte 1", wait_m1500_started_at)
                 if not self.running or ready_1 is None:
                     break
                 self.safe_log(f"[HANDSHAKE] M1500 TRUE recebido para Arte 1: valor={ready_1}")
@@ -620,15 +658,20 @@ class RotinaAutomaticaPage(ttk.Frame):
                 wait_ready_s = max(float(self.var_after_m70_s.get()), 0.0)
                 if wait_ready_s:
                     self.safe_log(f"Aguardando {wait_ready_s:.2f}s apos M1500 antes da Arte 1.")
+                    timer_started_at = time.perf_counter()
                     time.sleep(wait_ready_s)
+                    self.log_tempo("Timer apos M1500 antes Arte 1", timer_started_at)
                 if not self.running:
                     break
 
+                arte1_total_started_at = time.perf_counter()
                 frontal_ok = self.mark_one_arte_with_inspection(prebuild, "arte1", "Arte 1")
+                self.log_tempo("Arte 1 total gravacao + espera camera + inspecao", arte1_total_started_at)
                 self.safe_log(f"[INSPECAO] Arte 1 resultado={'OK' if frontal_ok else 'NG'}")
                 self.log_clp_snapshot("apos gravacao/inspecao Arte 1 antes M1510")
 
                 self.set_status("Avisando CLP: Arte 1 gravada/inspecionada (M1510)...")
+                m1510_started_at = time.perf_counter()
                 consumed_1 = self.signal_command_until_ack(
                     AUTO_MEM_GRAVACAO_INSPECAO_1,
                     "Gravacao + inspecao lado 1 concluida",
@@ -636,6 +679,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                     False,
                     "M1500 consumido apos Arte 1",
                 )
+                self.log_tempo("Handshake M1510 ate M1500 FALSE", m1510_started_at)
                 if not self.running:
                     break
                 self.safe_log(f"[HANDSHAKE] M1500 FALSE apos Arte 1: valor={consumed_1}")
@@ -643,51 +687,77 @@ class RotinaAutomaticaPage(ttk.Frame):
                 after_1510_s = max(float(self.var_after_rotate_s.get()), 0.0)
                 if after_1510_s:
                     self.safe_log(f"Aguardando {after_1510_s:.2f}s apos ACK M1510.")
+                    timer_started_at = time.perf_counter()
                     time.sleep(after_1510_s)
+                    self.log_tempo("Timer apos M1510 antes Arte 2", timer_started_at)
 
                 self.log_clp_snapshot("antes da Arte 2 apos espera M1510")
                 self.set_status("Gravando Arte 2 apos timer M1510...")
                 self.safe_log("[HANDSHAKE] M1500 nao sera aguardado para Arte 2; usando timer apos M1510 como liberacao.")
 
+                arte2_total_started_at = time.perf_counter()
                 traseira_ok = self.mark_one_arte_with_inspection(prebuild, "arte2", "Arte 2")
+                self.log_tempo("Arte 2 total gravacao + espera camera + inspecao", arte2_total_started_at)
                 self.safe_log(f"[INSPECAO] Arte 2 resultado={'OK' if traseira_ok else 'NG'}")
-                self.log_clp_snapshot("apos gravacao/inspecao Arte 2 antes M1511")
+                self.log_clp_snapshot("apos gravacao/inspecao Arte 2 antes resultado/M1511")
 
-                self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511)...")
+                aprovado = frontal_ok and traseira_ok
+                self.safe_log(f"[RESULTADO] frontal_ok={frontal_ok} traseira_ok={traseira_ok} aprovado={aprovado}")
+                self.log_clp_snapshot("antes de liberar resultado final")
+                clear_result_started_at = time.perf_counter()
+                self.clear_result_signals_before_new_result("novo resultado final")
+                self.log_tempo("Limpeza resultado anterior antes novo OK/NG", clear_result_started_at)
+                result_started_at = time.perf_counter()
+                if aprovado:
+                    self.set_status("Liberando resultado OK em M1120 antes do M1511...")
+                    self.write_mem(AUTO_MEM_RESULT_NG, False)
+                    self.write_mem(AUTO_MEM_RESULT_OK, True)
+                    self.safe_log("Resultado preparado. Inspecoes OK; M1120 ligado como aprovado antes do M1511.")
+                    inspecao = "Aprovado"
+                else:
+                    self.set_status("Liberando resultado NG em M1116 antes do M1511...")
+                    self.write_mem(AUTO_MEM_RESULT_OK, False)
+                    self.write_mem(AUTO_MEM_RESULT_NG, True)
+                    self.safe_log("Resultado preparado. Uma ou mais inspecoes reprovaram; M1116 ligado como NG antes do M1511.")
+                    inspecao = "Reprovado"
+                self.log_tempo("Escrita resultado OK/NG no CLP", result_started_at)
+                self.log_clp_snapshot(f"resultado {inspecao} ativo antes M1511")
+
+                self.set_status("Avisando CLP: Arte 2 gravada/inspecionada (M1511) com resultado ativo...")
+                m1511_started_at = time.perf_counter()
                 self.pulse_command_mem(AUTO_MEM_GRAVACAO_INSPECAO_2, "Gravacao + inspecao lado 2 concluida")
+                self.log_tempo("Pulso M1511 com resultado ativo", m1511_started_at)
                 if not self.running:
                     break
 
                 after_1511_s = max(float(self.var_after_return_s.get()), 0.0)
                 if after_1511_s:
-                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos ACK M1511.")
+                    self.safe_log(f"Aguardando {after_1511_s:.2f}s apos M1511 mantendo resultado ativo.")
+                    timer_started_at = time.perf_counter()
                     time.sleep(after_1511_s)
+                    self.log_tempo("Timer apos M1511 com resultado ativo", timer_started_at)
 
-                aprovado = frontal_ok and traseira_ok
-                self.safe_log(f"[RESULTADO] frontal_ok={frontal_ok} traseira_ok={traseira_ok} aprovado={aprovado}")
-                self.log_clp_snapshot("antes de liberar resultado final")
-                if aprovado:
-                    self.set_status("Liberando resultado OK em M1115...")
-                    self.write_mem(AUTO_MEM_RESULT_NG, False)
-                    self.write_mem(AUTO_MEM_RESULT_OK, True)
-                    self.safe_log("Ciclo concluido. Inspecoes OK; M1115 ligado como aprovado.")
-                    inspecao = "Aprovado"
-                else:
-                    self.set_status("Liberando resultado NG em M1116...")
-                    self.write_mem(AUTO_MEM_RESULT_OK, False)
-                    self.write_mem(AUTO_MEM_RESULT_NG, True)
-                    self.safe_log("Ciclo concluido. Uma ou mais inspecoes reprovaram; M1116 ligado como NG.")
-                    inspecao = "Reprovado"
-
+                self.safe_log(f"Ciclo concluido. Resultado final {inspecao} mantido ativo.")
                 self.log_clp_snapshot(f"resultado final liberado {inspecao}")
+                if AUTO_RESULT_HOLD_S > 0:
+                    hold_started_at = time.perf_counter()
+                    self.safe_log(f"[RESULTADO] Mantendo {inspecao} ativo por {AUTO_RESULT_HOLD_S:.2f}s para o CLP/robo consumir.")
+                    time.sleep(AUTO_RESULT_HOLD_S)
+                    self.log_tempo(f"Resultado {inspecao} mantido antes proximo ciclo", hold_started_at)
+                    self.log_clp_snapshot(f"apos hold resultado {inspecao}")
                 if hasattr(self.app, "add_dashboard_record"):
                     self.app.add_dashboard_record(self.var_serial.get().strip(), frontal_ok, traseira_ok, inspecao)
+                finish_serial_started_at = time.perf_counter()
                 self.finish_cycle_serial()
+                self.log_tempo("Finalizacao serial/banco/dashboard", finish_serial_started_at)
 
                 self.set_status("Aguardando M1500 desligar para evitar repetir a mesma peca...")
+                final_release_started_at = time.perf_counter()
                 final_release = self.wait_mem_false(AUTO_MEM_PRONTO_GRAVACAO, "M1500 liberacao novo ciclo")
+                self.log_tempo("Espera M1500 FALSE fim ciclo", final_release_started_at)
                 self.safe_log(f"[HANDSHAKE] M1500 FALSE liberacao novo ciclo: valor={final_release}")
                 self.log_clp_snapshot("fim ciclo pronto para proxima peca")
+                self.log_tempo("Ciclo completo", cycle_started_at)
         except Exception as exc:
             self.safe_log(f"Erro na rotina: {exc}")
             self.set_status("Erro")
@@ -729,20 +799,31 @@ class RotinaAutomaticaPage(ttk.Frame):
         return ctx
 
     def wait_prebuilt_job(self, ctx, suffix):
+        wait_started_at = time.perf_counter()
         if not ctx["ready"][suffix].is_set():
             self.set_status(f"Aguardando job {suffix} ficar pronto...")
-            self.safe_log(f"Aguardando pré-geração da {suffix} terminar.")
+            self.safe_log(f"Aguardando pre-geracao da {suffix} terminar.")
         ctx["ready"][suffix].wait()
+        self.log_tempo(f"{suffix} espera prebuild pronto", wait_started_at)
         if suffix in ctx["errors"]:
             raise ctx["errors"][suffix]
         return ctx["jobs"][suffix], ctx["presets"][suffix]
 
     def mark_one_arte_with_inspection(self, prebuild, suffix, label):
+        total_started_at = time.perf_counter()
         commands, preset_name = self.wait_prebuilt_job(prebuild, suffix)
         self.set_status(f"Gravando {label}...")
+        laser_started_at = time.perf_counter()
         self.execute_laser_job(commands, preset_name, suffix)
+        self.log_tempo(f"{label} execute_laser_job total", laser_started_at)
+        camera_wait_started_at = time.perf_counter()
         self.wait_before_camera_trigger(label)
-        return self.trigger_camera_inspection(label)
+        self.log_tempo(f"{label} espera antes trigger camera", camera_wait_started_at)
+        inspection_started_at = time.perf_counter()
+        result = self.trigger_camera_inspection(label)
+        self.log_tempo(f"{label} trigger + resposta camera", inspection_started_at)
+        self.log_tempo(f"{label} mark_one_arte_with_inspection total", total_started_at)
+        return result
 
     def mark_both_artes(self, prebuild=None):
         if prebuild is None:
@@ -756,6 +837,58 @@ class RotinaAutomaticaPage(ttk.Frame):
         commands = self.build_laser_job(preset_name, suffix)
         self.execute_laser_job(commands, preset_name, suffix)
 
+    def make_job_cache_key(self, preset_name, suffix, serial, preset):
+        try:
+            preset_signature = json.dumps(preset, sort_keys=True, ensure_ascii=True)
+        except TypeError:
+            preset_signature = str(sorted(preset.items()))
+        cal_signature = None
+        if os.path.exists("cal_0002.csv"):
+            try:
+                cal_signature = os.path.getmtime("cal_0002.csv")
+            except OSError:
+                cal_signature = "erro_mtime"
+        return (preset_name, suffix, serial, preset_signature, cal_signature)
+
+    def job_cache_file_path(self, cache_key, suffix):
+        digest = hashlib.sha256(repr(cache_key).encode("utf-8", errors="replace")).hexdigest()
+        return os.path.join(self.job_cache_dir, f"{suffix}_{digest}.bin")
+
+    def get_cached_job_data(self, cache_key, suffix):
+        with self.job_cache_lock:
+            cached = self.job_cache.get(cache_key)
+            if cached is not None:
+                self.safe_log(f"[CACHE] HIT memoria job {suffix} / bin={len(cached)} bytes")
+                return cached
+
+            cache_file = self.job_cache_file_path(cache_key, suffix)
+            if os.path.exists(cache_file):
+                with open(cache_file, "rb") as f:
+                    cached = f.read()
+                self.job_cache[cache_key] = cached
+                self.safe_log(f"[CACHE] HIT disco job {suffix} / bin={len(cached)} bytes")
+                return cached
+
+            self.safe_log(f"[CACHE] MISS job {suffix}; gerando binario novo.")
+            return None
+
+    def store_cached_job_data(self, cache_key, suffix, job_data):
+        with self.job_cache_lock:
+            if cache_key in self.job_cache:
+                self.job_cache[cache_key] = job_data
+            else:
+                if len(self.job_cache) >= self.job_cache_max:
+                    oldest_key = next(iter(self.job_cache))
+                    self.job_cache.pop(oldest_key, None)
+                    self.safe_log("[CACHE] Cache de jobs em memoria cheio; removi o job mais antigo.")
+                self.job_cache[cache_key] = job_data
+
+            os.makedirs(self.job_cache_dir, exist_ok=True)
+            cache_file = self.job_cache_file_path(cache_key, suffix)
+            with open(cache_file, "wb") as f:
+                f.write(job_data)
+            self.safe_log(f"[CACHE] Job {suffix} salvo no cache / bin={len(job_data)} bytes")
+
     def build_laser_job(self, preset_name, suffix):
         preset = self.presets.get(preset_name)
         if not preset:
@@ -766,11 +899,22 @@ class RotinaAutomaticaPage(ttk.Frame):
         import composer_module
 
         serial = self.var_serial.get().strip() or "TESTE123"
+        total_started_at = time.perf_counter()
+        cache_key = self.make_job_cache_key(preset_name, suffix, serial, preset)
+        cached_job_data = self.get_cached_job_data(cache_key, suffix)
+        if cached_job_data is not None:
+            parse_started_at = time.perf_counter()
+            command_binary = balor.command_list.CommandBinary(cached_job_data)
+            self.log_tempo(f"{suffix} parse CommandBinary cache", parse_started_at)
+            self.log_tempo(f"{suffix} build_laser_job total cache", total_started_at)
+            return command_binary
+
         raw_svg_file = f"temp_auto_{suffix}_raw.svg"
         svg_file = f"temp_auto_{suffix}.svg"
         job_file = f"temp_auto_{suffix}.bin"
         settings_file = f"temp_auto_{suffix}_settings.csv"
 
+        gen_started_at = time.perf_counter()
         gen = barcode_module.BarcodeGenerator(font_path=preset.get("text_font", "arial.ttf"))
         gen.generate_code128_svg(
             serial,
@@ -788,11 +932,13 @@ class RotinaAutomaticaPage(ttk.Frame):
             text_space=float(preset.get("text_space", "0.0")),
             group=bool(preset.get("group_barcode", True)),
         )
+        self.log_tempo(f"{suffix} SVG bruto barcode/texto", gen_started_at)
 
         ox = float(preset.get("offset_x", "0.0"))
         oy = float(preset.get("offset_y", "0.0"))
         sc = float(preset.get("scale", "1.0"))
         base_id = "base_1" if suffix == "arte1" else ("base_2" if suffix == "arte2" else suffix)
+        compose_started_at = time.perf_counter()
         composer_module.SceneComposer.compose_workspace([
             {
                 "id": base_id,
@@ -808,10 +954,13 @@ class RotinaAutomaticaPage(ttk.Frame):
                 "preserve_ids": False,
             }
         ], svg_file)
+        self.log_tempo(f"{suffix} Composer posicao/escala", compose_started_at)
 
         hatch_spacing = preset.get("hatch_spacing", "10.0") if preset.get("hatch_enable", True) else "0"
+        settings_started_at = time.perf_counter()
         with open(settings_file, "w", encoding="utf-8") as f:
             f.write(f"000000 {preset.get('freq', '60')} {preset.get('power', '25')} {preset.get('speed', '3500')} {preset.get('hatch_angle', '90')} {hatch_spacing} None 1\n")
+        self.log_tempo(f"{suffix} CSV parametros laser", settings_started_at)
 
         cmd = [
             sys.executable, "balor-svg.py", "mark",
@@ -834,38 +983,60 @@ class RotinaAutomaticaPage(ttk.Frame):
         if os.path.exists("cal_0002.csv"):
             cmd.extend(["-c", "cal_0002.csv"])
 
-        self.safe_log(f"Gerando job {suffix}: {preset_name} / serial {serial} / pos X={ox:.4f} Y={oy:.4f}")
+        self.safe_log(
+            f"Gerando job {suffix}: {preset_name} / serial {serial} / "
+            f"pos X={ox:.4f} Y={oy:.4f} / power={preset.get('power', '25')} "
+            f"speed={preset.get('speed', '3500')} freq={preset.get('freq', '60')} "
+            f"hatch={hatch_spacing}"
+        )
         job_started_at = time.perf_counter()
-        subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        result = subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
         job_elapsed = time.perf_counter() - job_started_at
-        self.safe_log(f"Job {suffix} gerado em {job_elapsed:.2f}s")
+        stderr_len = len(result.stderr or "")
+        job_size = os.path.getsize(job_file) if os.path.exists(job_file) else 0
+        self.safe_log(f"Job {suffix} gerado em {job_elapsed:.2f}s / bin={job_size} bytes / stderr={stderr_len} chars")
 
+        read_started_at = time.perf_counter()
         with open(job_file, "rb") as f:
-            return balor.command_list.CommandBinary(f.read())
+            job_data = f.read()
+        self.log_tempo(f"{suffix} leitura job binario", read_started_at)
+        self.store_cached_job_data(cache_key, suffix, job_data)
+
+        parse_started_at = time.perf_counter()
+        command_binary = balor.command_list.CommandBinary(job_data)
+        self.log_tempo(f"{suffix} parse CommandBinary", parse_started_at)
+        self.log_tempo(f"{suffix} build_laser_job total", total_started_at)
+        return command_binary
 
     def execute_laser_job(self, commands, preset_name, suffix):
         import balor.sender
 
         machine = balor.sender.Sender()
         self.last_laser_ok = False
+        total_started_at = time.perf_counter()
         try:
-            self.safe_log("Abrindo conexão USB da laser...")
+            self.safe_log("Abrindo conexao USB da laser...")
             open_started_at = time.perf_counter()
             if not machine.open(machine_index=0):
-                raise RuntimeError("Não foi possível abrir a placa laser.")
-            open_elapsed = time.perf_counter() - open_started_at
-            self.safe_log(f"Conexão USB laser aberta em {open_elapsed:.2f}s")
-            self.safe_log(f"Laser gravando {suffix}: {preset_name}")
-            started_at = time.perf_counter()
+                raise RuntimeError("Nao foi possivel abrir a placa laser.")
+            self.log_tempo(f"Laser {suffix} abertura USB", open_started_at)
+            self.safe_log(f"Laser pronto para executar {suffix}: {preset_name}")
+
+            execute_started_at = time.perf_counter()
+            self.safe_log(f"[TEMPO] Laser {suffix} execute() chamado; daqui ate retorno e gravacao fisica bloqueante.")
             machine.execute(command_list=commands, loop_count=1)
-            elapsed = time.perf_counter() - started_at
+            self.log_tempo(f"Laser {suffix} execute() bloqueante", execute_started_at)
             self.last_laser_ok = True
-            self.safe_log(f"Laser finalizou {suffix}: {preset_name} ({elapsed:.2f}s)")
+            self.safe_log(f"Laser finalizou {suffix}: {preset_name}")
         finally:
+            close_started_at = time.perf_counter()
             try:
                 machine.close()
             except Exception:
                 pass
+            self.log_tempo(f"Laser {suffix} fechamento USB", close_started_at)
+            self.log_tempo(f"Laser {suffix} total abrir + executar + fechar", total_started_at)
+
 
 
     def camera_is_connected(self):
@@ -874,7 +1045,9 @@ class RotinaAutomaticaPage(ttk.Frame):
     def wait_before_camera_trigger(self, label):
         self.set_status(f"Aguardando fumaca dissipar antes da inspecao {label}...")
         self.safe_log(f"Camera {label}: aguardando {CAMERA_AFTER_MARK_DELAY_S:.1f}s antes do trigger.")
+        started_at = time.perf_counter()
         time.sleep(CAMERA_AFTER_MARK_DELAY_S)
+        self.log_tempo(f"Camera {label} timer fumaca", started_at)
 
     def camera_disconnect(self):
         if self.camera_sock:
@@ -888,8 +1061,10 @@ class RotinaAutomaticaPage(ttk.Frame):
 
     def camera_connect(self):
         if self.camera_is_connected():
+            self.safe_log("Camera: conexao ja aberta, reutilizando socket.")
             return True
         try:
+            connect_started_at = time.perf_counter()
             self.safe_log(f"Camera: conectando em {KEYENCE_IP}:{KEYENCE_PORT}...")
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
@@ -899,6 +1074,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             if hasattr(self.app, "camera_connected"):
                 self.app.camera_connected = True
             self.safe_log("Camera: conectada.")
+            self.log_tempo("Camera conectar TCP", connect_started_at)
             return True
         except Exception as exc:
             self.camera_disconnect()
@@ -956,26 +1132,41 @@ class RotinaAutomaticaPage(ttk.Frame):
 
     def trigger_camera_inspection(self, label):
         self.set_status(f"Inspecionando {label}...")
+        total_started_at = time.perf_counter()
         if not self.camera_connect():
             self.safe_log(f"Camera {label}: FAIL por falha de conexao.")
+            self.log_tempo(f"Camera {label} trigger total falha conexao", total_started_at)
             return False
         try:
+            clear_started_at = time.perf_counter()
             self.camera_clear_buffer()
+            self.log_tempo(f"Camera {label} limpar buffer", clear_started_at)
+
+            send_started_at = time.perf_counter()
             self.safe_log(f"Camera {label}: enviando trigger.")
             self.camera_sock.sendall(KEYENCE_TRIGGER_CMD)
+            self.log_tempo(f"Camera {label} envio trigger", send_started_at)
+
+            recv_started_at = time.perf_counter()
             while True:
                 data = self.camera_recv_packet()
                 probe = data.decode("ascii", errors="ignore").replace("\x00", "").strip()
                 if "," in probe:
                     break
                 self.safe_log(f"Camera {label}: retorno sem resultado ignorado: {probe!r}")
+            self.log_tempo(f"Camera {label} espera resposta", recv_started_at)
+
+            parse_started_at = time.perf_counter()
             result, serial, raw = self.parse_camera_response(data)
             ok = result == "PASS"
+            self.log_tempo(f"Camera {label} parse resposta", parse_started_at)
             self.safe_log(f"Camera {label}: {result} serial={serial or '-'} raw={raw!r}")
+            self.log_tempo(f"Camera {label} trigger total", total_started_at)
             return ok
         except Exception as exc:
             self.camera_disconnect()
             self.safe_log(f"Camera {label}: FAIL ({type(exc).__name__}: {exc})")
+            self.log_tempo(f"Camera {label} trigger total erro", total_started_at)
             return False
     def refresh_status_loop(self):
         def _task():
@@ -992,5 +1183,5 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.var_m1500.set(values[0])
         self.var_m1110.set(values[1])
         self.var_m1116.set(values[2])
-        self.var_m1115.set(values[3])
+        self.var_m1120.set(values[3])
         self.after(1000, self.refresh_status_loop)
