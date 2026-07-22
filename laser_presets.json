@@ -1,8 +1,8 @@
 {
   "Arte 1 (Serial Banco)": {
-    "power": "25",
-    "speed": "5000",
-    "freq": "40",
+    "power": "27",
+    "speed": "3200",
+    "freq": "60",
     "hatch_enable": true,
     "hatch_angle": "90",
     "hatch_spacing": "10.0",
@@ -27,8 +27,8 @@
   },
   "Arte 2 (Serial Banco)": {
     "power": "27",
-    "speed": "5000",
-    "freq": "40",
+    "speed": "3500",
+    "freq": "60",
     "hatch_enable": true,
     "hatch_angle": "90",
     "hatch_spacing": "10.0",

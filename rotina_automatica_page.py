@@ -35,6 +35,7 @@ CAMERA_AFTER_MARK_DELAY_S = 0.0
 AUTO_MEM_POLL_FAST_S = 0.05
 AUTO_MEM_WAIT_LOG_EVERY_S = 2.0
 AUTO_RESULT_HOLD_S = 3.0
+AUTO_TEST_SERIAL_COUNT = 10
 
 
 class RotinaAutomaticaPage(ttk.Frame):
@@ -45,6 +46,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.worker_thread = None
         self.presets = self.load_presets()
         self.db_manager = db_module.DBManager()
+        self.db_lock = threading.RLock()
         self.db_serials = []
         self.current_record = None
         self.last_laser_ok = False
@@ -58,6 +60,13 @@ class RotinaAutomaticaPage(ttk.Frame):
         self.job_cache_lock = threading.RLock()
         self.job_cache_max = 8
         self.job_cache_dir = os.path.join("temp_auto_job_cache")
+        self.db_prebuild_lock = threading.RLock()
+        self.db_prebuilt_jobs = {}
+        self.db_prebuild_building_ids = set()
+        self.db_prebuild_max = 4
+        self.db_prebuild_worker_running = False
+        self.test_serial_cycle = []
+        self.test_serial_index = 0
 
         self.var_serial = tk.StringVar(value="TESTE123")
         self.var_test_serial = tk.StringVar(value="4313110010")
@@ -118,7 +127,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         ttk.Button(top, text="Abrir Balor GUI", command=self.open_balor_gui).grid(row=3, column=5, sticky="ew", padx=5, pady=4)
 
         ttk.Checkbutton(top, text="Auto-Sync Banco", variable=self.var_use_db_auto_sync, command=self.toggle_db_auto_sync).grid(row=4, column=0, sticky="w", padx=5, pady=4)
-        ttk.Checkbutton(top, text="Modo teste/default", variable=self.var_test_mode).grid(row=4, column=1, sticky="w", padx=5, pady=4)
+        ttk.Checkbutton(top, text="Modo teste/default (10 seriais)", variable=self.var_test_mode).grid(row=4, column=1, sticky="w", padx=5, pady=4)
         ttk.Label(top, text="Serial teste:").grid(row=4, column=2, sticky="w", padx=5, pady=4)
         ttk.Entry(top, textvariable=self.var_test_serial, width=18).grid(row=4, column=3, sticky="ew", padx=5, pady=4)
         ttk.Label(top, textvariable=self.var_db_status, foreground="blue").grid(row=4, column=4, columnspan=2, sticky="w", padx=5, pady=4)
@@ -180,9 +189,17 @@ class RotinaAutomaticaPage(ttk.Frame):
             self.sync_db_once(silent=True)
             time.sleep(3)
 
+    def get_pending_serials_safe(self):
+        with self.db_lock:
+            return self.db_manager.get_pending_serials()
+
+    def mark_as_engraved_safe(self, log_id):
+        with self.db_lock:
+            return self.db_manager.mark_as_engraved(log_id)
+
     def sync_db_once(self, silent=False):
         try:
-            serials = self.db_manager.get_pending_serials()
+            serials = self.get_pending_serials_safe()
             self.after(0, lambda s=serials: self.apply_db_serials(s))
         except Exception as exc:
             if not silent:
@@ -197,20 +214,50 @@ class RotinaAutomaticaPage(ttk.Frame):
         else:
             self.var_db_status.set("Auto-Sync: fila vazia")
 
+    def build_test_serial_cycle(self):
+        base = self.var_test_serial.get().strip() or self.var_serial.get().strip() or "TESTE123"
+        if base.isdigit():
+            width = len(base)
+            start = int(base)
+            return [f"{start + index:0{width}d}" for index in range(AUTO_TEST_SERIAL_COUNT)]
+        return [f"{base}_{index + 1:02d}" for index in range(AUTO_TEST_SERIAL_COUNT)]
+
+    def reset_test_serial_cycle(self):
+        self.test_serial_cycle = self.build_test_serial_cycle()
+        self.test_serial_index = 0
+        self.safe_log(f"[MODO-TESTE] Lista de {len(self.test_serial_cycle)} seriais preparada: {', '.join(self.test_serial_cycle)}")
+
+    def next_test_cycle_serial(self):
+        if not self.test_serial_cycle:
+            self.reset_test_serial_cycle()
+        index = self.test_serial_index % len(self.test_serial_cycle)
+        serial = self.test_serial_cycle[index]
+        self.test_serial_index += 1
+        return serial, index + 1, len(self.test_serial_cycle)
+
     def prepare_cycle_serial(self):
         if self.var_test_mode.get():
             self.current_record = None
-            serial = self.var_test_serial.get().strip() or self.var_serial.get().strip() or "TESTE123"
+            serial, serial_pos, serial_total = self.next_test_cycle_serial()
             self.var_serial.set(serial)
-            self.safe_log(f"Modo teste: usando serial {serial}")
+            self.safe_log(f"[MODO-TESTE] Ciclo serial {serial_pos}/{serial_total}: usando serial {serial}")
             return serial
 
         if self.var_use_db_auto_sync.get():
-            serials = self.db_manager.get_pending_serials()
+            serials = self.get_pending_serials_safe()
             self.db_serials = list(serials or [])
             if not self.db_serials:
                 raise RuntimeError("Banco sem seriais pendentes para gravar.")
-            self.current_record = self.db_serials[0]
+            selected_record = None
+            with self.db_prebuild_lock:
+                for row in self.db_serials:
+                    row_key = self._record_id_key(row)
+                    if row_key in self.db_prebuilt_jobs:
+                        selected_record = row
+                        break
+            if selected_record is None:
+                selected_record = self.db_serials[0]
+            self.current_record = selected_record
             serial = str(self.current_record["serial"])
             self.var_serial.set(serial)
             self.safe_log(f"Auto-Sync banco: usando serial {serial} (ID {self.current_record['id']})")
@@ -226,7 +273,7 @@ class RotinaAutomaticaPage(ttk.Frame):
         if not self.current_record:
             return
         log_id = self.current_record["id"]
-        if self.db_manager.mark_as_engraved(log_id):
+        if self.mark_as_engraved_safe(log_id):
             self.safe_log(f"Banco: ID {log_id} marcado como gravado.")
             self.current_record = None
             self.sync_db_once(silent=True)
@@ -620,7 +667,10 @@ class RotinaAutomaticaPage(ttk.Frame):
         if not messagebox.askyesno("Rotina Automática", "Iniciar rotina automática com gravação real das duas artes?"):
             return
         self.running = True
+        if self.var_test_mode.get():
+            self.reset_test_serial_cycle()
         self.btn_start.config(state="disabled")
+        self.start_db_prebuild_queue()
         self.worker_thread = threading.Thread(target=self.auto_loop, daemon=True)
         self.worker_thread.start()
 
@@ -643,7 +693,12 @@ class RotinaAutomaticaPage(ttk.Frame):
                 self.clear_cycle_signals("inicio ciclo")
                 self.log_tempo("Limpeza sinais CLP inicio ciclo", clear_started_at)
                 self.log_clp_snapshot("inicio ciclo antes prebuild")
-                prebuild = self.start_prebuild_jobs()
+                prebuild = self.pop_prebuilt_jobs_for_current(serial)
+                if prebuild is None:
+                    prebuild = self.start_prebuild_jobs(serial)
+                    self.start_db_prebuild_queue_after_current_jobs(prebuild)
+                else:
+                    self.start_db_prebuild_queue()
 
                 self.log_clp_snapshot("antes de aguardar M1500 Arte 1")
                 self.set_status("Aguardando M1500 pronto para Arte 1...")
@@ -746,7 +801,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                     self.log_tempo(f"Resultado {inspecao} mantido antes proximo ciclo", hold_started_at)
                     self.log_clp_snapshot(f"apos hold resultado {inspecao}")
                 if hasattr(self.app, "add_dashboard_record"):
-                    self.app.add_dashboard_record(self.var_serial.get().strip(), frontal_ok, traseira_ok, inspecao)
+                    self.app.add_dashboard_record(serial, frontal_ok, traseira_ok, inspecao)
                 finish_serial_started_at = time.perf_counter()
                 self.finish_cycle_serial()
                 self.log_tempo("Finalizacao serial/banco/dashboard", finish_serial_started_at)
@@ -775,7 +830,120 @@ class RotinaAutomaticaPage(ttk.Frame):
             self.safe_log(f"Preset combinado selecionado em {suffix}; usando {resolved} para gravar separado.")
             return resolved
         return selected_name
-    def start_prebuild_jobs(self):
+
+    def _record_id_key(self, record):
+        if not record:
+            return None
+        try:
+            return str(record["id"])
+        except Exception:
+            return None
+
+    def pop_prebuilt_jobs_for_current(self, serial):
+        record_key = self._record_id_key(self.current_record)
+        if not record_key:
+            return None
+        with self.db_prebuild_lock:
+            ctx = self.db_prebuilt_jobs.pop(record_key, None)
+        if ctx is None:
+            self.safe_log(f"[PREBUILD-FILA] Sem job antecipado para serial {serial}; gerando agora.")
+            return None
+        self.safe_log(f"[PREBUILD-FILA] Usando job antecipado do banco para serial {serial} (ID {record_key}).")
+        return ctx
+
+    def start_db_prebuild_queue(self):
+        if self.var_test_mode.get() or not self.var_use_db_auto_sync.get() or not self.running:
+            return
+        with self.db_prebuild_lock:
+            if self.db_prebuild_worker_running:
+                return
+            self.db_prebuild_worker_running = True
+        self.safe_log(f"[PREBUILD-FILA] Worker continuo iniciado; mantendo ate {self.db_prebuild_max} seriais prontos.")
+        threading.Thread(target=self._db_prebuild_queue_worker, daemon=True).start()
+
+    def start_db_prebuild_queue_after_current_jobs(self, current_ctx):
+        if self.var_test_mode.get() or not self.var_use_db_auto_sync.get():
+            return
+
+        def _wait_current_then_start():
+            try:
+                self.safe_log("[PREBUILD-FILA] Fila do banco aguardando jobs atuais prontos antes de buscar proximos seriais.")
+                current_ctx["ready"]["arte1"].wait()
+                current_ctx["ready"]["arte2"].wait()
+                if not self.running:
+                    return
+                self.safe_log("[PREBUILD-FILA] Jobs atuais prontos. Worker do banco liberado para encher buffer.")
+                self.start_db_prebuild_queue()
+            except Exception as exc:
+                self.safe_log(f"[PREBUILD-FILA] Erro ao liberar fila apos jobs atuais: {exc}")
+
+        threading.Thread(target=_wait_current_then_start, daemon=True).start()
+
+    def _db_prebuild_queue_worker(self):
+        try:
+            while self.running and self.var_use_db_auto_sync.get() and not self.var_test_mode.get():
+                selected = None
+                current_key = self._record_id_key(self.current_record)
+                try:
+                    pending = list(self.get_pending_serials_safe() or [])
+                except Exception as exc:
+                    self.safe_log(f"[PREBUILD-FILA] Erro lendo banco para antecipar jobs: {exc}")
+                    time.sleep(2.0)
+                    continue
+
+                with self.db_prebuild_lock:
+                    buffered = len(self.db_prebuilt_jobs)
+                    if buffered < self.db_prebuild_max:
+                        for record in pending:
+                            record_key = self._record_id_key(record)
+                            if not record_key or record_key == current_key:
+                                continue
+                            if record_key in self.db_prebuilt_jobs or record_key in self.db_prebuild_building_ids:
+                                continue
+                            serial = str(record["serial"])
+                            self.db_prebuild_building_ids.add(record_key)
+                            selected = (record, record_key, serial)
+                            break
+
+                if selected is None:
+                    time.sleep(0.5)
+                    continue
+
+                record, record_key, serial = selected
+                started_at = time.perf_counter()
+                self.safe_log(f"[PREBUILD-FILA] Gerando antecipado serial {serial} (ID {record_key}); buffer atual={len(self.db_prebuilt_jobs)}/{self.db_prebuild_max}.")
+                ctx = self.start_prebuild_jobs(serial)
+                ctx["db_record"] = record
+                ctx["serial"] = serial
+                ctx["prebuild_started_at"] = started_at
+                with self.db_prebuild_lock:
+                    self.db_prebuilt_jobs[record_key] = ctx
+
+                try:
+                    ctx["ready"]["arte1"].wait()
+                    if "arte1" in ctx["errors"]:
+                        raise ctx["errors"]["arte1"]
+                    self.log_tempo(f"PREBUILD-FILA arte1 pronta serial {serial}", started_at)
+
+                    ctx["ready"]["arte2"].wait()
+                    if "arte2" in ctx["errors"]:
+                        raise ctx["errors"]["arte2"]
+                    self.log_tempo(f"PREBUILD-FILA arte1+arte2 prontas serial {serial}", started_at)
+                except Exception as exc:
+                    self.safe_log(f"[PREBUILD-FILA] Falha ao gerar antecipado serial {serial}: {exc}")
+                    with self.db_prebuild_lock:
+                        if self.db_prebuilt_jobs.get(record_key) is ctx:
+                            self.db_prebuilt_jobs.pop(record_key, None)
+                finally:
+                    with self.db_prebuild_lock:
+                        self.db_prebuild_building_ids.discard(record_key)
+        except Exception as exc:
+            self.safe_log(f"[PREBUILD-FILA] Worker parou por erro: {exc}")
+        finally:
+            with self.db_prebuild_lock:
+                self.db_prebuild_worker_running = False
+
+    def start_prebuild_jobs(self, serial=None):
         preset_arte1 = self.resolve_step_preset(self.var_preset_arte1.get(), "arte1")
         preset_arte2 = self.resolve_step_preset(self.var_preset_arte2.get(), "arte2")
         ctx = {
@@ -787,15 +955,22 @@ class RotinaAutomaticaPage(ttk.Frame):
     
         def _build_job(suffix, preset_name):
             try:
-                ctx["jobs"][suffix] = self.build_laser_job(preset_name, suffix)
+                ctx["jobs"][suffix] = self.build_laser_job(preset_name, suffix, serial_override=serial)
             except Exception as exc:
                 ctx["errors"][suffix] = exc
             finally:
                 ctx["ready"][suffix].set()
 
-        self.safe_log("Pre-gerando jobs arte1 e arte2 enquanto aguarda M1500.")
-        threading.Thread(target=_build_job, args=("arte1", preset_arte1), daemon=True).start()
-        threading.Thread(target=_build_job, args=("arte2", preset_arte2), daemon=True).start()
+        def _build_priority_order():
+            self.safe_log("Pre-gerando job arte1 com prioridade; arte2 entra depois para nao atrasar inicio da gravacao.")
+            _build_job("arte1", preset_arte1)
+            if self.running:
+                self.safe_log("Job arte1 pronto/liberado. Gerando arte2 em segundo plano.")
+                _build_job("arte2", preset_arte2)
+            else:
+                ctx["ready"]["arte2"].set()
+
+        threading.Thread(target=_build_priority_order, daemon=True).start()
         return ctx
 
     def wait_prebuilt_job(self, ctx, suffix):
@@ -889,7 +1064,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                 f.write(job_data)
             self.safe_log(f"[CACHE] Job {suffix} salvo no cache / bin={len(job_data)} bytes")
 
-    def build_laser_job(self, preset_name, suffix):
+    def build_laser_job(self, preset_name, suffix, serial_override=None, use_cache=True):
         preset = self.presets.get(preset_name)
         if not preset:
             raise RuntimeError(f"Preset não encontrado: {preset_name}")
@@ -898,16 +1073,20 @@ class RotinaAutomaticaPage(ttk.Frame):
         import balor.command_list
         import composer_module
 
-        serial = self.var_serial.get().strip() or "TESTE123"
+        serial = str(serial_override).strip() if serial_override is not None else self.var_serial.get().strip()
+        serial = serial or "TESTE123"
         total_started_at = time.perf_counter()
         cache_key = self.make_job_cache_key(preset_name, suffix, serial, preset)
-        cached_job_data = self.get_cached_job_data(cache_key, suffix)
-        if cached_job_data is not None:
-            parse_started_at = time.perf_counter()
-            command_binary = balor.command_list.CommandBinary(cached_job_data)
-            self.log_tempo(f"{suffix} parse CommandBinary cache", parse_started_at)
-            self.log_tempo(f"{suffix} build_laser_job total cache", total_started_at)
-            return command_binary
+        if use_cache:
+            cached_job_data = self.get_cached_job_data(cache_key, suffix)
+            if cached_job_data is not None:
+                parse_started_at = time.perf_counter()
+                command_binary = balor.command_list.CommandBinary(cached_job_data)
+                self.log_tempo(f"{suffix} parse CommandBinary cache", parse_started_at)
+                self.log_tempo(f"{suffix} build_laser_job total cache", total_started_at)
+                return command_binary
+        else:
+            self.safe_log(f"[CACHE] BYPASS job {suffix}; teste forcando geracao nova.")
 
         raw_svg_file = f"temp_auto_{suffix}_raw.svg"
         svg_file = f"temp_auto_{suffix}.svg"
@@ -979,6 +1158,7 @@ class RotinaAutomaticaPage(ttk.Frame):
             "--hatch-speed-scale", "2.00",
             "--hatch-overrun", "0.00",
             "--hatch-serpentine",
+            "--quiet",
         ]
         if os.path.exists("cal_0002.csv"):
             cmd.extend(["-c", "cal_0002.csv"])
@@ -1000,7 +1180,10 @@ class RotinaAutomaticaPage(ttk.Frame):
         with open(job_file, "rb") as f:
             job_data = f.read()
         self.log_tempo(f"{suffix} leitura job binario", read_started_at)
-        self.store_cached_job_data(cache_key, suffix, job_data)
+        if use_cache:
+            self.store_cached_job_data(cache_key, suffix, job_data)
+        else:
+            self.safe_log(f"[CACHE] BYPASS job {suffix}; binario gerado nao foi salvo no cache.")
 
         parse_started_at = time.perf_counter()
         command_binary = balor.command_list.CommandBinary(job_data)

@@ -7,6 +7,7 @@ import time
 from pyModbusTCP.client import ModbusClient
 from rotina_automatica_page import RotinaAutomaticaPage
 from dashboard_page import DashboardPage
+from ciclo_teste_jobs_page import CicloTesteJobsPage
 
 CONFIG_FILE = "plc_config.json"
 DEFAULT_MODBUS_SLAVE_ID = 1
@@ -254,6 +255,7 @@ class PLCPanelApp:
         self.nav_frame.pack(fill="x", padx=10, pady=(8, 0))
         ttk.Button(self.nav_frame, text="Painel Manual", command=self.show_manual_page).pack(side="left", padx=(0, 5))
         ttk.Button(self.nav_frame, text="Rotina Automática", command=self.show_auto_page).pack(side="left", padx=5)
+        ttk.Button(self.nav_frame, text="Teste Jobs", command=self.show_job_test_page).pack(side="left", padx=5)
         ttk.Button(self.nav_frame, text="Dashboard", command=self.show_dashboard_page).pack(side="left", padx=5)
 
         self.page_container = ttk.Frame(self.root)
@@ -261,6 +263,7 @@ class PLCPanelApp:
 
         self.manual_page = ttk.Frame(self.page_container)
         self.auto_page = RotinaAutomaticaPage(self.page_container, self)
+        self.job_test_page = CicloTesteJobsPage(self.page_container, self)
         self.dashboard_page = DashboardPage(self.page_container, self)
 
         header_frame = ttk.Frame(self.manual_page)
@@ -344,6 +347,9 @@ class PLCPanelApp:
 
     def show_dashboard_page(self):
         self._show_page(self.dashboard_page)
+
+    def show_job_test_page(self):
+        self._show_page(self.job_test_page)
 
     def add_dashboard_record(self, serial, frontal=True, traseira=True, inspecao="Aprovado"):
         if hasattr(self, "dashboard_page"):
