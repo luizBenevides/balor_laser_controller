@@ -4,6 +4,7 @@ import time
 import tkinter as tk
 from tkinter import ttk
 from tkinter import font as tkfont
+from tkinter import messagebox
 
 _ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
 _ICON_PATH = os.path.normpath(os.path.join(_ASSETS_DIR, "dashboard.ico"))
@@ -141,6 +142,27 @@ class DashboardPage(tk.Frame):
         btn.bind("<Leave>", lambda _e, b=btn: b.config(bg=COLOR_PANEL, fg=COLOR_TEXT_MUTED))
         return btn
 
+    def _small_nav_button(self, parent, text, command):
+        btn = tk.Button(
+            parent,
+            text=text,
+            font=("Segoe UI Semibold", 10, "bold"),
+            bg=COLOR_PANEL,
+            fg=COLOR_TEXT_MUTED,
+            activebackground=COLOR_PANEL_ALT,
+            activeforeground=COLOR_TEXT,
+            relief="flat",
+            bd=0,
+            padx=18,
+            pady=8,
+            cursor="hand2",
+            command=command,
+        )
+        btn.pack(side="left", padx=6)
+        btn.bind("<Enter>", lambda _e, b=btn: b.config(bg=COLOR_PANEL_ALT, fg=COLOR_TEXT))
+        btn.bind("<Leave>", lambda _e, b=btn: b.config(bg=COLOR_PANEL, fg=COLOR_TEXT_MUTED))
+        return btn
+
     def _build_nav(self, parent):
         nav = tk.Frame(parent, bg=COLOR_BG_BOTTOM, highlightthickness=0, bd=0)
         nav.pack(fill="x", padx=CONTENT_PADX, pady=(12, 0))
@@ -150,6 +172,7 @@ class DashboardPage(tk.Frame):
 
         self._nav_button(bar, "ROTINA AUTOMÁTICA", self.app.show_auto_page)
         self._nav_button(bar, "PAINEL MANUAL", self.app.show_manual_page)
+        self._small_nav_button(bar, "Resetar Contador", self.reset_piece_history)
 
     def build_ui(self):
         style = ttk.Style(self)
@@ -361,6 +384,18 @@ class DashboardPage(tk.Frame):
         self.set_led(self.led_laser, laser_ok)
         self.after(1000, self.refresh_status_loop)
 
+    def reset_piece_history(self):
+        if not self.records:
+            self.update_summary()
+            return
+        if not messagebox.askyesno("Resetar Contador", "Zerar todos os contadores e o histórico de peças?"):
+            return
+        self.records.clear()
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        self.update_summary()
+        self.after_idle(self._sync_tree_scrollbar)
+
     def add_record(self, serial, frontal=True, traseira=True, inspecao="Aprovado"):
         self.after(0, lambda: self._add_record(serial, frontal, traseira, inspecao))
 
@@ -387,3 +422,5 @@ class DashboardPage(tk.Frame):
         self.var_pct_aprovado.set(f"{round((aprovado / total) * 100) if total else 0}%")
         self.var_pct_reprovado.set(f"{round((reprovado / total) * 100) if total else 0}%")
         self.var_pct_total.set("100%" if total else "0%")
+
+
