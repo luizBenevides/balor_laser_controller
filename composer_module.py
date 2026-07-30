@@ -85,7 +85,8 @@ class SceneComposer:
                             path_attrs.append(f'{attr_name}="{a[attr_name]}"')
                 if len(tp) > 0:
                     bb = tp.bbox()
-                    print(f"[DEBUG][composer] item={item['id']} path={path_id} bbox={bb} z={item.get('z', 0)}")
+                    if os.environ.get("BALOR_COMPOSER_DEBUG") == "1":
+                        print(f"[DEBUG][composer] item={item['id']} path={path_id} bbox={bb} z={item.get('z', 0)}")
                 attrs_text = " ".join(path_attrs)
                 svg_content += f'    <path id="{path_id}" d="{d}" {attrs_text} />\n'
                 

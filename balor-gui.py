@@ -559,6 +559,20 @@ class BalorStudioLite:
         if file_path:
             self.current_svg = file_path
             self.main_svg_file = file_path
+            self.custom_scene_items = [i for i in self.custom_scene_items if i.get('id') != 'main_svg']
+            self.custom_scene_items.insert(0, {
+                'id': 'main_svg',
+                'file': file_path,
+                'source_id': '*',
+                'ox': 0.0, 'oy': 0.0,
+                'sx': 1.0, 'sy': 1.0,
+                'rot': 0.0,
+                'z': 100.0,
+                'color': '',
+                'visible': True,
+                'preserve_ids': False
+            })
+            self.selected_obj.set("main_svg")
             self.lbl_filename.config(text=os.path.basename(file_path))
             self.var_content_mode.set("svg")
             
@@ -1258,6 +1272,7 @@ class BalorStudioLite:
             # If user explicitly clicked Generate on the text tab, clear main custom SVG base
             if hasattr(self, 'main_svg_file'):
                 self.main_svg_file = None
+                self.custom_scene_items = [i for i in self.custom_scene_items if i.get('id') != 'main_svg']
 
         current_sel = self.selected_obj.get()
         t = self.var_text_type.get()
@@ -1266,11 +1281,20 @@ class BalorStudioLite:
         base_items = []
         
         if self.var_content_mode.get() == "svg" and hasattr(self, 'main_svg_file') and self.main_svg_file and os.path.exists(self.main_svg_file):
-            base_items.append({
-                'id': 'main_svg', 'file': self.main_svg_file,
-                'ox': 0, 'oy': 0, 'sx': 1, 'sy': 1, 'rot': 0, 'z': 0, 'color': '',
-                'visible': True, 'preserve_ids': True
-            })
+            main_item = next((i for i in self.custom_scene_items if i.get('id') == 'main_svg'), None)
+            if main_item is None:
+                self.custom_scene_items.insert(0, {
+                    'id': 'main_svg',
+                    'file': self.main_svg_file,
+                    'source_id': '*',
+                    'ox': 0.0, 'oy': 0.0,
+                    'sx': 1.0, 'sy': 1.0,
+                    'rot': 0.0,
+                    'z': 100.0,
+                    'color': '',
+                    'visible': True,
+                    'preserve_ids': False
+                })
         elif self.var_content_mode.get() == "code128_serial" or self.var_content_mode.get() == "svg":
             gen = barcode_module.BarcodeGenerator()
             if getattr(self, 'is_combined_mode', False):

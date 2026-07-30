@@ -87,6 +87,8 @@ parser.add_argument('--hatch-angle',
     default=45.0, type=float)
 parser.add_argument('--hidden-tags', type=str, default="",
     help="Comma-separated list of SVG IDs to ignore during rendering")
+parser.add_argument('--quiet', action='store_true',
+    help="Suppress diagnostic stderr output while generating the binary job")
 parser.add_argument('--segment-length',
     help="Maximum path segment length in mm",
     default=1.0, type=float)
@@ -107,6 +109,13 @@ parser.add_argument('-y', '--yoff',
 
 
 args = parser.parse_args()
+if args.quiet:
+    class _QuietStderr:
+        def write(self, data):
+            return len(data or "")
+        def flush(self):
+            pass
+    sys.stderr = _QuietStderr()
 import numpy as np
 def separate_points(path, seglen, xscale, yscale, xoff, yoff):
     points = []
