@@ -342,8 +342,8 @@ class RotinaAutomaticaPage(ttk.Frame):
             },
             AUTO_PRESET_ARTE_2: {
                 "power": "25", "speed": "3500", "freq": "60", "hatch_enable": True,
-                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-3.8902",
-                "offset_y": "-7.6600", "scale": "1.0", "barcode_h": "5.1",
+                "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-4.0210",
+                "offset_y": "-9.8847", "scale": "1.0", "barcode_h": "5.1",
                 "barcode_w_scale": "1.0", "text_scale": "2.5", "text_x_off": "0.0",
                 "text_y_off": "0.0", "barcode_rot": "180", "text_rot": "180",
                 "text_font": "arial.ttf", "text_space": "0.0", "barcode_type": "gs1_128",
@@ -366,11 +366,11 @@ class RotinaAutomaticaPage(ttk.Frame):
                 "text_pos": "bottom", "group_barcode": True, "is_combined": True,
                 "combined_offsets": {
                     "base_1": [-3.3295, -36.3426],
-                    "base_2": [-3.8902, -7.6600]
+                    "base_2": [-4.0210, -9.8847]
                 },
                 "combined_rotations": {
                     "base_1": -1.8,
-                    "base_2": 0.0
+                    "base_2": -1.8
                 },
                 "obj_visibility": {"base_1": True, "base_2": True}
             }

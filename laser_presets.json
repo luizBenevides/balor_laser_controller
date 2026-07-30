@@ -32,11 +32,11 @@
     "hatch_enable": true,
     "hatch_angle": "90",
     "hatch_spacing": "10.0",
-    "offset_x": "-3.8902",
-    "offset_y": "-7.6600",
+    "offset_x": "-4.0210",
+    "offset_y": "-9.8847",
     "scale": "1.0",
-    "width_mm": "29.00",
-    "height_mm": "9.00",
+    "width_mm": "28.00",
+    "height_mm": "8.50",
     "text_type": "Code 128 + Serial",
     "text_pos": "bottom",
     "barcode_h": "5.1",
@@ -81,13 +81,13 @@
         -36.3426
       ],
       "base_2": [
-        -3.8902,
-        -7.66
+        -4.0210,
+        -9.8847
       ]
     },
     "combined_rotations": {
       "base_1": -1.8,
-      "base_2": 0.0
+      "base_2": -1.8
     },
     "obj_visibility": {
       "base_1": true,
