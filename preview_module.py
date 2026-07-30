@@ -331,6 +331,11 @@ class PreviewManager:
                 self.gui.var_barcode_rot.set(f"{target_rot:.1f}")
             elif sel == "text":
                 self.gui.var_text_rot.set(f"{target_rot:.1f}")
+            elif sel in ("base_1", "base_2"):
+                if not hasattr(self.gui, 'combined_rotations'):
+                    self.gui.combined_rotations = {"base_1": 0.0, "base_2": 0.0}
+                self.gui.combined_rotations[sel] = target_rot
+                self.gui.var_obj_rot.set(f"{target_rot:.1f}")
             else:
                 for item_obj in self.gui.custom_scene_items:
                     if item_obj['id'] == sel:
@@ -369,6 +374,8 @@ class PreviewManager:
                     elif t == "text":
                         try: self.drag_data["start_rot"] = float(self.gui.var_text_rot.get())
                         except: self.drag_data["start_rot"] = 0.0
+                    elif t in ("base_1", "base_2"):
+                        self.drag_data["start_rot"] = getattr(self.gui, 'combined_rotations', {}).get(t, 0.0)
                     else:
                         for item_obj in self.gui.custom_scene_items:
                             if item_obj['id'] == t:

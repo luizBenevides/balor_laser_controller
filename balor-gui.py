@@ -270,6 +270,9 @@ class BalorStudioLite:
         self.entry_obj_rot = ttk.Entry(self.obj_adj_frame, textvariable=self.var_obj_rot, width=10)
         self.entry_obj_rot.grid(row=6, column=0, padx=2, sticky="w")
         
+        for entry in (self.entry_obj_scale_x, self.entry_obj_scale_y, self.entry_obj_off_x, self.entry_obj_off_y, self.entry_obj_rot):
+            entry.bind("<Return>", lambda e: self.apply_selected_object_adjustments())
+        
         ttk.Button(self.obj_adj_frame, text="Aplicar no Objeto", command=self.apply_selected_object_adjustments).grid(row=7, column=0, columnspan=2, pady=10)
 
         # Presets (Always visible at the bottom of the left sidebar)
@@ -1110,11 +1113,12 @@ class BalorStudioLite:
         # Sync Transform Controls
         if sel in ("base_1", "base_2"):
             ox, oy = self.combined_offsets[sel]
+            rot = getattr(self, 'combined_rotations', {}).get(sel, 0.0)
             self.var_obj_scale_x.set("1.0000")
             self.var_obj_scale_y.set("1.0000")
             self.var_obj_off_x.set(f"{ox:.4f}")
             self.var_obj_off_y.set(f"{oy:.4f}")
-            self.var_obj_rot.set("0.0")
+            self.var_obj_rot.set(f"{rot:.4f}")
             return
 
         custom_item = next((i for i in self.custom_scene_items if i['id'] == sel), None)
@@ -1138,6 +1142,9 @@ class BalorStudioLite:
             try:
                 self.combined_offsets[sel][0] = float(self.var_obj_off_x.get())
                 self.combined_offsets[sel][1] = float(self.var_obj_off_y.get())
+                if not hasattr(self, 'combined_rotations'):
+                    self.combined_rotations = {"base_1": 0.0, "base_2": 0.0}
+                self.combined_rotations[sel] = float(self.var_obj_rot.get())
                 self.update_content_mode()
             except ValueError:
                 messagebox.showerror("Erro", "Valores invalidos nos campos da arte selecionada.")
@@ -1346,13 +1353,13 @@ class BalorStudioLite:
                 base_items.append({
                     'id': 'base_1', 'file': 'temp_barcode_1.svg',
                     'ox': self.combined_offsets['base_1'][0], 'oy': self.combined_offsets['base_1'][1],
-                    'sx': 1.0, 'sy': 1.0, 'rot': 0.0, 'z': 10, 'color': '',
+                    'sx': 1.0, 'sy': 1.0, 'rot': getattr(self, 'combined_rotations', {}).get('base_1', 0.0), 'z': 10, 'color': '',
                     'visible': self.obj_visibility.get("base_1", True), 'preserve_ids': False
                 })
                 base_items.append({
                     'id': 'base_2', 'file': 'temp_barcode_2.svg',
                     'ox': self.combined_offsets['base_2'][0], 'oy': self.combined_offsets['base_2'][1],
-                    'sx': 1.0, 'sy': 1.0, 'rot': 0.0, 'z': 11, 'color': '',
+                    'sx': 1.0, 'sy': 1.0, 'rot': getattr(self, 'combined_rotations', {}).get('base_2', 0.0), 'z': 11, 'color': '',
                     'visible': self.obj_visibility.get("base_2", True), 'preserve_ids': False
                 })
             else:
