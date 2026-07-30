@@ -6,8 +6,8 @@
     "hatch_enable": true,
     "hatch_angle": "90",
     "hatch_spacing": "10.0",
-    "offset_x": "-1.1317",
-    "offset_y": "-35.5651",
+    "offset_x": "-3.3295",
+    "offset_y": "-36.3426",
     "scale": "1.0",
     "width_mm": "12.00",
     "height_mm": "39.62",
@@ -77,13 +77,17 @@
     "is_combined": true,
     "combined_offsets": {
       "base_1": [
-        -1.1317,
-        -35.5651
+        -3.3295,
+        -36.3426
       ],
       "base_2": [
         -3.8902,
         -7.66
       ]
+    },
+    "combined_rotations": {
+      "base_1": -1.8,
+      "base_2": 0.0
     },
     "obj_visibility": {
       "base_1": true,
