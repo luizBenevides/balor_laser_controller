@@ -353,7 +353,7 @@ class RotinaAutomaticaPage(ttk.Frame):
                 "power": "27", "speed": "3500", "freq": "60", "hatch_enable": True,
                 "hatch_angle": "90", "hatch_spacing": "10.0", "offset_x": "-2.4906",
                 "offset_y": "3.5914", "scale": "0.8859", "width_mm": "26.00",
-                "height_mm": "11.36", "rot": "0.0", "fixed_svg": AUTO_ARTE3_SVG,
+                "height_mm": "11.36", "rot": "1.8", "fixed_svg": AUTO_ARTE3_SVG,
                 "text_type": "SVG Fixo"
             },
             "Arte 1 + 2 (Frontal + Traseira)": {
