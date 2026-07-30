@@ -25,6 +25,8 @@ AUTO_MEM_NG = AUTO_MEM_RESULT_NG
 AUTO_MEM_OK = AUTO_MEM_RESULT_OK
 AUTO_PRESET_ARTE_1 = "Arte 1 (Serial Banco)"
 AUTO_PRESET_ARTE_2 = "Arte 2 (Serial Banco)"
+AUTO_PRESET_ARTE_3 = "Arte 3 (Cache Fixo)"
+AUTO_ARTE3_SVG = "PADRAO_DELTA_art3_cache.svg"
 KEYENCE_IP = "192.168.1.29"
 KEYENCE_PORT = 8500
 KEYENCE_TIMEOUT_S = 5
@@ -1025,16 +1027,20 @@ class RotinaAutomaticaPage(ttk.Frame):
     def start_prebuild_jobs(self, serial=None):
         preset_arte1 = self.resolve_step_preset(self.var_preset_arte1.get(), "arte1")
         preset_arte2 = self.resolve_step_preset(self.var_preset_arte2.get(), "arte2")
+        preset_arte3 = AUTO_PRESET_ARTE_3
         ctx = {
             "jobs": {},
             "errors": {},
-            "ready": {"arte1": threading.Event(), "arte2": threading.Event()},
-            "presets": {"arte1": preset_arte1, "arte2": preset_arte2},
+            "ready": {"arte1": threading.Event(), "arte2": threading.Event(), "arte3": threading.Event()},
+            "presets": {"arte1": preset_arte1, "arte2": preset_arte2, "arte3": preset_arte3},
         }
     
         def _build_job(suffix, preset_name):
             try:
-                ctx["jobs"][suffix] = self.build_laser_job(preset_name, suffix, serial_override=serial)
+                if suffix == "arte3":
+                    ctx["jobs"][suffix] = self.build_fixed_svg_job(preset_name, suffix)
+                else:
+                    ctx["jobs"][suffix] = self.build_laser_job(preset_name, suffix, serial_override=serial)
             except Exception as exc:
                 ctx["errors"][suffix] = exc
             finally:
@@ -1046,8 +1052,11 @@ class RotinaAutomaticaPage(ttk.Frame):
             if self.running:
                 self.safe_log("Job arte1 pronto/liberado. Gerando arte2 em segundo plano.")
                 _build_job("arte2", preset_arte2)
+                self.safe_log("Job arte2 pronto/liberado. Garantindo Arte 3 fixa em cache.")
+                _build_job("arte3", preset_arte3)
             else:
                 ctx["ready"]["arte2"].set()
+                ctx["ready"]["arte3"].set()
 
         threading.Thread(target=_build_priority_order, daemon=True).start()
         return ctx
@@ -1070,6 +1079,15 @@ class RotinaAutomaticaPage(ttk.Frame):
         laser_started_at = time.perf_counter()
         self.execute_laser_job(commands, preset_name, suffix)
         self.log_tempo(f"{label} execute_laser_job total", laser_started_at)
+
+        if suffix == "arte2":
+            arte3_started_at = time.perf_counter()
+            arte3_commands, arte3_preset_name = self.wait_prebuilt_job(prebuild, "arte3")
+            self.set_status("Gravando Arte 3 fixa junto da traseira...")
+            self.safe_log("[ARTE3] Executando Arte 3 fixa apos Arte 2 e antes da inspecao traseira.")
+            self.execute_laser_job(arte3_commands, arte3_preset_name, "arte3")
+            self.log_tempo("Arte 3 fixa execute_laser_job total", arte3_started_at)
+
         camera_wait_started_at = time.perf_counter()
         self.wait_before_camera_trigger(label)
         self.log_tempo(f"{label} espera antes trigger camera", camera_wait_started_at)
@@ -1143,6 +1161,110 @@ class RotinaAutomaticaPage(ttk.Frame):
                 f.write(job_data)
             self.safe_log(f"[CACHE] Job {suffix} salvo no cache / bin={len(job_data)} bytes")
 
+    def build_fixed_svg_job(self, preset_name, suffix, use_cache=True):
+        preset = self.presets.get(preset_name)
+        if not preset:
+            raise RuntimeError(f"Preset nao encontrado: {preset_name}")
+        if not os.path.exists(AUTO_ARTE3_SVG):
+            raise RuntimeError(f"SVG fixo da Arte 3 nao encontrado: {AUTO_ARTE3_SVG}")
+
+        import balor.command_list
+        import composer_module
+
+        total_started_at = time.perf_counter()
+        cache_preset = dict(preset)
+        try:
+            cache_preset["source_svg_mtime"] = os.path.getmtime(AUTO_ARTE3_SVG)
+            cache_preset["source_svg_size"] = os.path.getsize(AUTO_ARTE3_SVG)
+        except OSError:
+            cache_preset["source_svg_mtime"] = "erro_mtime"
+        cache_key = self.make_job_cache_key(preset_name, suffix, "FIXED", cache_preset)
+        if use_cache:
+            cached_job_data = self.get_cached_job_data(cache_key, suffix)
+            if cached_job_data is not None:
+                parse_started_at = time.perf_counter()
+                command_binary = balor.command_list.CommandBinary(cached_job_data)
+                self.log_tempo(f"{suffix} parse CommandBinary cache", parse_started_at)
+                self.log_tempo(f"{suffix} build_fixed_svg_job total cache", total_started_at)
+                return command_binary
+
+        svg_file = f"temp_auto_{suffix}.svg"
+        job_file = f"temp_auto_{suffix}.bin"
+        settings_file = f"temp_auto_{suffix}_settings.csv"
+
+        ox = float(preset.get("offset_x", "0.0"))
+        oy = float(preset.get("offset_y", "0.0"))
+        sc = float(preset.get("scale", "1.0"))
+        compose_started_at = time.perf_counter()
+        composer_module.SceneComposer.compose_workspace([
+            {
+                "id": "base_3",
+                "file": AUTO_ARTE3_SVG,
+                "ox": ox,
+                "oy": oy,
+                "sx": sc,
+                "sy": sc,
+                "rot": float(preset.get("rot", "0.0")),
+                "z": 12,
+                "color": "",
+                "visible": True,
+                "preserve_ids": False,
+            }
+        ], svg_file)
+        self.log_tempo(f"{suffix} Composer SVG fixo posicao/escala", compose_started_at)
+
+        hatch_spacing = preset.get("hatch_spacing", "10.0") if preset.get("hatch_enable", True) else "0"
+        settings_started_at = time.perf_counter()
+        with open(settings_file, "w", encoding="utf-8") as f:
+            f.write(f"000000 {preset.get('freq', '60')} {preset.get('power', '27')} {preset.get('speed', '3500')} {preset.get('hatch_angle', '90')} {hatch_spacing} None 1\n")
+        self.log_tempo(f"{suffix} CSV parametros laser", settings_started_at)
+
+        cmd = [
+            sys.executable, "balor-svg.py", "mark",
+            "-f", svg_file,
+            "-o", job_file,
+            "--xoff", "0.0",
+            "--yoff", "0.0",
+            "--xscale", "1.0",
+            "--yscale", "1.0",
+            "-s", settings_file,
+            "--laser-on-delay", "0",
+            "--laser-off-delay", "0",
+            "--mark-end-delay", "0",
+            "--polygon-delay", "50",
+            "--hatch-power-scale", "0.90",
+            "--hatch-speed-scale", "2.00",
+            "--hatch-overrun", "0.00",
+            "--hatch-serpentine",
+            "--quiet",
+        ]
+        if os.path.exists("cal_0002.csv"):
+            cmd.extend(["-c", "cal_0002.csv"])
+
+        self.safe_log(
+            f"Gerando job {suffix}: {preset_name} / SVG fixo={AUTO_ARTE3_SVG} / "
+            f"pos X={ox:.4f} Y={oy:.4f} scale={sc:.4f} / power={preset.get('power', '27')} "
+            f"speed={preset.get('speed', '3500')} freq={preset.get('freq', '60')} hatch={hatch_spacing}"
+        )
+        job_started_at = time.perf_counter()
+        result = subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+        job_elapsed = time.perf_counter() - job_started_at
+        stderr_len = len(result.stderr or "")
+        job_size = os.path.getsize(job_file) if os.path.exists(job_file) else 0
+        self.safe_log(f"Job {suffix} gerado em {job_elapsed:.2f}s / bin={job_size} bytes / stderr={stderr_len} chars")
+
+        read_started_at = time.perf_counter()
+        with open(job_file, "rb") as f:
+            job_data = f.read()
+        self.log_tempo(f"{suffix} leitura job binario", read_started_at)
+        if use_cache:
+            self.store_cached_job_data(cache_key, suffix, job_data)
+
+        parse_started_at = time.perf_counter()
+        command_binary = balor.command_list.CommandBinary(job_data)
+        self.log_tempo(f"{suffix} parse CommandBinary", parse_started_at)
+        self.log_tempo(f"{suffix} build_fixed_svg_job total", total_started_at)
+        return command_binary
     def build_laser_job(self, preset_name, suffix, serial_override=None, use_cache=True):
         preset = self.presets.get(preset_name)
         if not preset:
